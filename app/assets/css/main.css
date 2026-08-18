@@ -1,0 +1,57 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme static {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --color-blue-50: #f7faff;
+  --color-blue-100: #dcebff;
+  --color-blue-200: #bddcff;
+  --color-blue-300: #8bc3ff;
+  --color-blue-400: #5aa9ff;
+  --color-blue-500: #2677ff;
+  --color-blue-600: #0a3dff;
+  --color-blue-700: #0732d2;
+  --color-blue-800: #102b91;
+  --color-blue-900: #10244a;
+  --color-blue-950: #08152e;
+}
+
+:root {
+  --acme-ink: #10244a;
+  --acme-muted: #62789c;
+  --acme-border: #d9e5f7;
+  --acme-surface: #f7faff;
+  --acme-success: #168a63;
+  --acme-warning: #b87316;
+  --acme-danger: #c9475c;
+}
+
+html {
+  background: var(--acme-surface);
+  color: var(--acme-ink);
+  scroll-behavior: smooth;
+}
+
+body { min-height: 100vh; }
+
+::selection { background: #bddcff; color: #10244a; }
+
+.acme-grid {
+  background-image: linear-gradient(rgba(10, 61, 255, .045) 1px, transparent 1px), linear-gradient(90deg, rgba(10, 61, 255, .045) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+.acme-card {
+  border: 1px solid var(--acme-border);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 18px 50px rgba(32, 82, 170, .08);
+}
+
+.acme-kicker {
+  color: #0a3dff;
+  font-size: .75rem;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
