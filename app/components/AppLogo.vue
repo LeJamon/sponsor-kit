@@ -1,5 +1,7 @@
 <script setup lang="ts">
 withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
+
+const gradientId = useId()
 </script>
 
 <template>
@@ -11,7 +13,7 @@ withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
     >
       <defs>
         <linearGradient
-          id="acme-sail"
+          :id="gradientId"
           x1="8"
           y1="4"
           x2="38"
@@ -27,7 +29,7 @@ withDefaults(defineProps<{ compact?: boolean }>(), { compact: false })
       </defs>
       <path
         d="M25.7 4.5C16.4 14 11.6 24.6 9.2 37.7c7.6-2.4 14.2-7.1 18.4-13.6 3.2-4.9 4-10.3-1.9-19.6Z"
-        fill="url(#acme-sail)"
+        :fill="`url(#${gradientId})`"
       />
       <path
         d="M30.5 16.2c-1 8.5-4.9 15.1-11.8 20.7 7.1.6 13.8 1.8 20.1 4.1-.3-9.3-2.9-17.7-8.3-24.8Z"

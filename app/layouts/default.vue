@@ -10,8 +10,8 @@ const consoleRoute = computed(() => session.value?.user
 
 <template>
   <div class="min-h-screen bg-[#F7FAFF]">
-    <header class="sticky top-0 z-40 border-b border-[#D9E5F7]/80 bg-white/85 backdrop-blur-xl">
-      <UContainer class="flex h-18 items-center justify-between">
+    <header class="sticky top-0 z-40 border-b border-[#E5EDF9] bg-white">
+      <UContainer class="flex h-18 max-w-[1740px] items-center justify-between px-6 sm:px-8 xl:px-12">
         <NuxtLink
           to="/"
           aria-label="ACME home"

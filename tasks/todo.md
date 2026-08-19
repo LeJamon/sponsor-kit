@@ -1,5 +1,27 @@
 # ACME Sponsor Kit
 
+## Landing-page reference alignment
+
+- [x] Match the supplied header and first-screen hero composition.
+- [x] Add the two-tone headline, dual calls to action, and halftone sailboat treatment.
+- [x] Recompose the live Devnet metrics and labeled example transaction into the overlapping card.
+- [x] Verify responsive behavior, accessibility, lint, typecheck, tests, build, and rendered HTML.
+
+### Review
+
+Reworked the first screen to follow the supplied composition: an opaque wide
+header, oversized navy/blue headline, primary and documentation actions, a
+monochrome halftone sailboat scene, and a single raised card combining live
+network metrics with a clearly labeled example transaction. The runtime network
+name now drives the live label, narrow transaction addresses truncate safely,
+and repeated logo instances use unique SVG gradient identifiers.
+
+`npm run verify` passed ESLint, Nuxt typecheck, all 14 Vitest tests, and the
+production build. A production-server smoke request returned `200` and rendered
+the headline, both actions, guest sign-in route, live Devnet values, and example
+transaction. Interactive pixel-level browser comparison remains unavailable in
+the current browser runtime.
+
 - [x] Define product, tenant, trust, and open-source boundaries.
 - [x] Define existing-wallet and per-object reserve migration behavior.
 - [x] Scaffold independent Nuxt 4 + Nuxt UI application using npm.

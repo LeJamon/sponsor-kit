@@ -34,6 +34,10 @@ html {
 
 body { min-height: 100vh; }
 
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
 ::selection { background: #bddcff; color: #10244a; }
 
 .acme-grid {
