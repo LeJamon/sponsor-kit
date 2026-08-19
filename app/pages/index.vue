@@ -65,7 +65,7 @@ const sponsoredFee = computed(() => network.value?.baseFeeDrops
           </div>
         </div>
 
-        <div class="mt-16 max-w-[980px] overflow-hidden rounded-[1.75rem] border border-white/95 bg-white/96 shadow-[0_24px_80px_rgba(16,36,74,.16)] backdrop-blur-xl lg:mt-14">
+        <div class="mt-16 max-w-[820px] overflow-hidden rounded-[1.75rem] border border-white/95 bg-white/96 shadow-[0_24px_80px_rgba(16,36,74,.16)] backdrop-blur-xl lg:mt-14">
           <div class="p-6 sm:p-8 lg:min-h-[290px] lg:p-9">
             <div class="flex items-start justify-between gap-4">
               <div>

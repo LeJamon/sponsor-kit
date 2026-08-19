@@ -19,7 +19,9 @@ right side open for the full sailboat composition.
 
 The running page rendered both image sources, `NFTokenMint`, a 1-drop sponsored
 fee, and the current 0.2 XRP sponsored object reserve. `npm run verify` passed
-ESLint, Nuxt typecheck, all 14 Vitest tests, and the production build.
+ESLint, Nuxt typecheck, all 14 Vitest tests, and the production build. The final
+card width was reduced from 980 px to 820 px so its right edge clears the boat's
+hull at the supplied desktop viewport.
 
 ## Hero focal-point correction
 
