@@ -22,3 +22,4 @@
 - A hero asset is not visually verified until its full focal subject survives the target viewport, container aspect ratio, and foreground overlays; decouple decorative image height from variable content when lower cards would otherwise shift the subject out of view.
 - When the user supplies a final visual asset, use that asset directly and remove approximation filters or overlays that alter its intended composition.
 - Size overlapping hero cards against the artwork's full subject bounds, not merely the available container width; a correct crop still fails if foreground UI covers the focal object.
+- When a visual adjustment is specified as a percentage, apply it to the current rendered dimension explicitly and record the resulting target rather than estimating by eye.
