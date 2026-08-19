@@ -21,7 +21,9 @@ The running page rendered both image sources, `NFTokenMint`, a 1-drop sponsored
 fee, and the current 0.2 XRP sponsored object reserve. `npm run verify` passed
 ESLint, Nuxt typecheck, all 14 Vitest tests, and the production build. The final
 card width was first reduced from 980 px to 820 px, then reduced by a further
-33% to 550 px so the boat has substantially more unobstructed space.
+33% to 550 px so the boat has substantially more unobstructed space. The card's
+second endpoint now shows the `rSponsor...72DA` sponsorship account instead of
+a clipped network label, keeping the `NFTokenMint` example protocol-accurate.
 
 ## Hero focal-point correction
 

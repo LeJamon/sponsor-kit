@@ -11,7 +11,6 @@ const capabilities = [
 const { data: network, status: networkStatus, error: networkError, refresh: refreshNetwork } = await useFetch('/api/v1/public/network')
 
 const objectReserve = computed(() => formatDropsAsXrp(network.value?.objectReserveDrops))
-const networkName = computed(() => network.value?.network || 'devnet')
 const sponsoredFee = computed(() => network.value?.baseFeeDrops
   ? `${network.value.baseFeeDrops} ${network.value.baseFeeDrops === '1' ? 'drop' : 'drops'}`
   : '—')
@@ -100,10 +99,10 @@ const sponsoredFee = computed(() => network.value?.baseFeeDrops
               </span>
               <div class="min-w-0 text-right">
                 <p class="text-[11px] font-semibold text-[#7B90B0]">
-                  NETWORK
+                  SPONSOR
                 </p>
-                <p class="mt-2 truncate text-sm font-semibold capitalize">
-                  XRPL {{ networkName }}
+                <p class="mt-2 truncate font-mono text-sm font-semibold">
+                  rSponsor...72DA
                 </p>
               </div>
             </div>
