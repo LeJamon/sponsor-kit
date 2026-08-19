@@ -10,27 +10,31 @@ const capabilities = [
 
 const { data: network, status: networkStatus, error: networkError, refresh: refreshNetwork } = await useFetch('/api/v1/public/network')
 
-const ledgerIndex = computed(() => network.value?.ledgerIndex.toLocaleString() || '—')
-const accountReserve = computed(() => formatDropsAsXrp(network.value?.accountReserveDrops))
 const objectReserve = computed(() => formatDropsAsXrp(network.value?.objectReserveDrops))
-const networkLabel = computed(() => network.value?.network
-  ? `Live ${network.value.network}`
-  : 'Live network')
+const networkName = computed(() => network.value?.network || 'devnet')
+const sponsoredFee = computed(() => network.value?.baseFeeDrops
+  ? `${network.value.baseFeeDrops} ${network.value.baseFeeDrops === '1' ? 'drop' : 'drops'}`
+  : '—')
 </script>
 
 <template>
   <div>
     <section class="acme-hero relative isolate overflow-hidden border-b border-[#D9E5F7] bg-[#F4F8FF]">
-      <img
-        src="/acme-sailboat-hero.webp"
-        alt=""
-        width="1536"
-        height="1024"
-        fetchpriority="high"
-        class="acme-hero-image absolute inset-x-0 top-0 -z-30 h-full w-full object-cover object-[67%_center] lg:h-[900px]"
-      >
+      <picture class="absolute inset-x-0 top-0 -z-30 h-full w-full lg:h-[900px]">
+        <source
+          srcset="/boat.webp"
+          type="image/webp"
+        >
+        <img
+          src="/boat.png"
+          alt=""
+          width="1536"
+          height="1024"
+          fetchpriority="high"
+          class="acme-hero-image size-full object-cover object-[64%_center]"
+        >
+      </picture>
       <div class="acme-hero-wash absolute inset-x-0 top-0 -z-20 h-full lg:h-[900px]" />
-      <div class="acme-hero-halftone pointer-events-none absolute inset-x-0 top-0 -z-10 h-full lg:h-[900px]" />
 
       <UContainer class="relative flex min-h-[calc(100svh-4.5rem)] max-w-[1740px] flex-col px-6 pb-8 pt-16 sm:px-8 sm:pt-20 lg:min-h-[780px] lg:justify-between lg:pb-10 lg:pt-24 xl:px-12">
         <div class="max-w-[610px]">
@@ -61,52 +65,15 @@ const networkLabel = computed(() => network.value?.network
           </div>
         </div>
 
-        <div class="mt-16 overflow-hidden rounded-[1.75rem] border border-white/95 bg-white/95 shadow-[0_24px_80px_rgba(16,36,74,.16)] backdrop-blur-xl lg:mt-14 lg:grid lg:grid-cols-[1.25fr_.95fr]">
-          <div class="relative grid gap-0 border-b border-[#D9E5F7] sm:grid-cols-3 lg:border-b-0 lg:border-r">
-            <div
-              v-for="metric in [
-                { icon: 'i-lucide-arrow-up-right', value: ledgerIndex, label: 'Validated ledger', detail: networkLabel },
-                { icon: 'i-lucide-landmark', value: accountReserve, label: 'Account reserve', detail: 'Current network' },
-                { icon: 'i-lucide-box', value: objectReserve, label: 'Object reserve', detail: 'Current network' }
-              ]"
-              :key="metric.label"
-              class="border-b border-[#D9E5F7] p-6 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 lg:flex lg:min-h-[290px] lg:flex-col lg:justify-center lg:p-9"
-            >
-              <span class="grid size-11 place-items-center rounded-full bg-[#EEF4FF] text-[#0A3DFF]">
-                <UIcon
-                  :name="metric.icon"
-                  class="size-6"
-                />
-              </span>
-              <p class="mt-6 text-2xl font-bold tracking-[-.035em] text-[#10244A] xl:text-[2rem]">
-                {{ networkStatus === 'pending' ? '—' : metric.value }}
-              </p>
-              <p class="mt-2 text-sm font-semibold text-[#354D75]">
-                {{ metric.label }}
-              </p>
-              <p class="mt-1 text-xs text-[#7B90B0]">
-                {{ networkError ? 'Live data unavailable' : metric.detail }}
-              </p>
-            </div>
-            <UButton
-              v-if="networkError"
-              label="Retry live data"
-              size="xs"
-              color="neutral"
-              variant="ghost"
-              class="absolute right-3 top-3"
-              @click="() => refreshNetwork()"
-            />
-          </div>
-
-          <div class="p-6 lg:flex lg:min-h-[290px] lg:flex-col lg:justify-center lg:p-9">
+        <div class="mt-16 max-w-[980px] overflow-hidden rounded-[1.75rem] border border-white/95 bg-white/96 shadow-[0_24px_80px_rgba(16,36,74,.16)] backdrop-blur-xl lg:mt-14">
+          <div class="p-6 sm:p-8 lg:min-h-[290px] lg:p-9">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="text-xs font-semibold text-[#7B90B0]">
                   Example transaction
                 </p>
                 <p class="mt-2 text-lg font-semibold text-[#10244A]">
-                  Send 100 XRP
+                  NFTokenMint
                 </p>
               </div>
               <UBadge
@@ -119,10 +86,10 @@ const networkLabel = computed(() => network.value?.network
             <div class="mt-5 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-t border-[#D9E5F7] pt-5 sm:gap-4">
               <div class="min-w-0">
                 <p class="text-[11px] font-semibold text-[#7B90B0]">
-                  FROM
+                  ACCOUNT
                 </p>
                 <p class="mt-2 truncate font-mono text-sm font-semibold">
-                  rUser...8F2K
+                  rCreator...8F2K
                 </p>
               </div>
               <span class="grid size-10 place-items-center rounded-full border border-[#D9E5F7] bg-white shadow-sm">
@@ -133,10 +100,10 @@ const networkLabel = computed(() => network.value?.network
               </span>
               <div class="min-w-0 text-right">
                 <p class="text-[11px] font-semibold text-[#7B90B0]">
-                  TO
+                  NETWORK
                 </p>
-                <p class="mt-2 truncate font-mono text-sm font-semibold">
-                  rStore...72DA
+                <p class="mt-2 truncate text-sm font-semibold capitalize">
+                  XRPL {{ networkName }}
                 </p>
               </div>
             </div>
@@ -146,17 +113,32 @@ const networkLabel = computed(() => network.value?.network
                   NETWORK FEE
                 </p>
                 <p class="mt-2 font-semibold text-[#0A3DFF]">
-                  Sponsored · {{ network?.baseFeeDrops || '—' }} drops
+                  Sponsored · {{ networkStatus === 'pending' ? '—' : sponsoredFee }}
                 </p>
               </div>
               <div class="rounded-xl bg-[#F3F7FF] p-4">
                 <p class="text-[11px] font-semibold text-[#7B90B0]">
-                  RESERVE IMPACT
+                  OBJECT RESERVE
                 </p>
-                <p class="mt-2 font-semibold text-[#10244A]">
-                  No new object
+                <p class="mt-2 font-semibold text-[#0A3DFF]">
+                  Sponsored · {{ networkStatus === 'pending' ? '—' : objectReserve }}
                 </p>
               </div>
+            </div>
+            <div
+              v-if="networkError"
+              class="mt-4 flex items-center justify-between gap-4 text-sm text-[#C9475C]"
+              role="status"
+              aria-live="polite"
+            >
+              <span>Live fee and reserve values are unavailable.</span>
+              <UButton
+                label="Retry"
+                size="xs"
+                color="neutral"
+                variant="ghost"
+                @click="() => refreshNetwork()"
+              />
             </div>
           </div>
         </div>
@@ -321,21 +303,13 @@ const networkLabel = computed(() => network.value?.network
 
 <style scoped>
 .acme-hero-image {
-  filter: grayscale(1) sepia(1) saturate(6) hue-rotate(181deg) contrast(1.08) brightness(1.08);
+  image-rendering: auto;
 }
 
 .acme-hero-wash {
   background:
-    linear-gradient(90deg, rgb(255 255 255 / 100%) 0%, rgb(255 255 255 / 96%) 28%, rgb(255 255 255 / 55%) 49%, rgb(255 255 255 / 4%) 74%),
-    linear-gradient(0deg, rgb(240 246 255 / 28%), transparent 42%);
-}
-
-.acme-hero-halftone {
-  background-image: radial-gradient(circle, rgb(10 61 255 / 24%) .65px, transparent .8px);
-  background-size: 4px 4px;
-  mix-blend-mode: multiply;
-  -webkit-mask-image: linear-gradient(90deg, transparent 12%, rgb(0 0 0 / 28%) 37%, #000 58%);
-  mask-image: linear-gradient(90deg, transparent 12%, rgb(0 0 0 / 28%) 37%, #000 58%);
+    linear-gradient(90deg, rgb(255 255 255 / 100%) 0%, rgb(255 255 255 / 96%) 28%, rgb(255 255 255 / 46%) 48%, transparent 70%),
+    linear-gradient(0deg, rgb(240 246 255 / 18%), transparent 42%);
 }
 
 .acme-stack-plane {
@@ -380,11 +354,6 @@ const networkLabel = computed(() => network.value?.network
     background:
       linear-gradient(180deg, rgb(255 255 255 / 100%) 0%, rgb(255 255 255 / 93%) 42%, rgb(255 255 255 / 52%) 68%, rgb(240 246 255 / 50%) 100%),
       linear-gradient(90deg, rgb(255 255 255 / 88%), transparent);
-  }
-
-  .acme-hero-halftone {
-    -webkit-mask-image: linear-gradient(180deg, transparent 20%, #000 58%);
-    mask-image: linear-gradient(180deg, transparent 20%, #000 58%);
   }
 
   .acme-stack-plane {

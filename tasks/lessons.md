@@ -20,3 +20,4 @@
 - Public navigation should expose one session-aware console action rather than simultaneous Sign in and Open console buttons. Preserve the protected destination in the guest redirect and render auth-varying pages per request to avoid a misleading first paint.
 - Marketing composition does not justify fabricated or publicly disclosed tenant metrics. Use clearly labeled examples for conceptual UI and non-sensitive live network data for factual public statistics.
 - A hero asset is not visually verified until its full focal subject survives the target viewport, container aspect ratio, and foreground overlays; decouple decorative image height from variable content when lower cards would otherwise shift the subject out of view.
+- When the user supplies a final visual asset, use that asset directly and remove approximation filters or overlays that alter its intended composition.

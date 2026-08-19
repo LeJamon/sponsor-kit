@@ -1,5 +1,26 @@
 # ACME Sponsor Kit
 
+## Supplied hero asset and NFT example
+
+- [x] Replace the derived WebP treatment with the supplied `boat.png` asset.
+- [x] Remove the public ledger and reserve statistic columns.
+- [x] Move a single `NFTokenMint` sponsorship example into the left-side card.
+- [x] Show live fee and object-reserve sponsorship values with loading and error states.
+- [x] Verify responsive output, tests, typecheck, lint, and production build.
+
+### Review
+
+The hero now uses the supplied dithered boat artwork directly, with an optimized
+WebP source and the original PNG retained as fallback. The three network metric
+columns were removed, and the reduced left-side card now presents one
+`NFTokenMint` flowing from a creator account to XRPL with policy approval, live
+network fee sponsorship, and live object-reserve sponsorship. This leaves the
+right side open for the full sailboat composition.
+
+The running page rendered both image sources, `NFTokenMint`, a 1-drop sponsored
+fee, and the current 0.2 XRP sponsored object reserve. `npm run verify` passed
+ESLint, Nuxt typecheck, all 14 Vitest tests, and the production build.
+
 ## Hero focal-point correction
 
 - [x] Decouple the scenic image height from the lower dashboard card.
