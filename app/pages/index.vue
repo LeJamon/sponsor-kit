@@ -27,10 +27,10 @@ const networkLabel = computed(() => network.value?.network
         width="1536"
         height="1024"
         fetchpriority="high"
-        class="acme-hero-image absolute inset-0 -z-30 size-full object-cover object-[67%_center]"
+        class="acme-hero-image absolute inset-x-0 top-0 -z-30 h-full w-full object-cover object-[67%_center] lg:h-[900px]"
       >
-      <div class="acme-hero-wash absolute inset-0 -z-20" />
-      <div class="acme-hero-halftone pointer-events-none absolute inset-0 -z-10" />
+      <div class="acme-hero-wash absolute inset-x-0 top-0 -z-20 h-full lg:h-[900px]" />
+      <div class="acme-hero-halftone pointer-events-none absolute inset-x-0 top-0 -z-10 h-full lg:h-[900px]" />
 
       <UContainer class="relative flex min-h-[calc(100svh-4.5rem)] max-w-[1740px] flex-col px-6 pb-8 pt-16 sm:px-8 sm:pt-20 lg:min-h-[780px] lg:justify-between lg:pb-10 lg:pt-24 xl:px-12">
         <div class="max-w-[610px]">

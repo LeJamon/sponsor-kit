@@ -1,5 +1,19 @@
 # ACME Sponsor Kit
 
+## Hero focal-point correction
+
+- [x] Decouple the scenic image height from the lower dashboard card.
+- [x] Keep both the sail and hull visible at the supplied desktop viewport.
+- [x] Verify the production build and rendered homepage.
+
+### Review
+
+The desktop scenic layers now have a dedicated 900 px hero canvas instead of
+inheriting the full section height from the metrics card. This preserves the
+asset's sail-and-hull composition while leaving mobile behavior unchanged.
+`npm run verify` passed ESLint, Nuxt typecheck, all 14 tests, and the production
+build; the running development homepage returned `200` after the hot reload.
+
 ## Landing-page reference alignment
 
 - [x] Match the supplied header and first-screen hero composition.

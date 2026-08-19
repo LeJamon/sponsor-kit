@@ -19,3 +19,4 @@
 - Never document a planned wallet abstraction as an implemented SDK API. Describe the exact HTTP and signed-artifact contract first, label future adapters clearly, and account for wallet codecs that cannot yet serialize draft amendment fields.
 - Public navigation should expose one session-aware console action rather than simultaneous Sign in and Open console buttons. Preserve the protected destination in the guest redirect and render auth-varying pages per request to avoid a misleading first paint.
 - Marketing composition does not justify fabricated or publicly disclosed tenant metrics. Use clearly labeled examples for conceptual UI and non-sensitive live network data for factual public statistics.
+- A hero asset is not visually verified until its full focal subject survives the target viewport, container aspect ratio, and foreground overlays; decouple decorative image height from variable content when lower cards would otherwise shift the subject out of view.
