@@ -5,7 +5,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { auditLogs, fundingBalances, fundingLedgerEntries, intentEvents, organizationMemberships, organizations, outboxEvents, platformControls, projectFundingBudgets, projectFundingQuotas, projectSponsorAccounts, projects, sponsorAccounts, sponsorTreasuries, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies, submissions, user } from '../server/database/schema'
 import { canonicalHash } from '../server/domain/canonical-json'
-import { FundingCapacityError, reserveFundingCapacity } from '../server/services/funding'
+import { FundingCapacityError, readProjectFunding, reserveFundingCapacity } from '../server/services/funding'
 import { resumeSponsorshipIntentSigning } from '../server/services/intent-creation'
 
 const routeMocks = vi.hoisted(() => ({
@@ -34,6 +34,8 @@ vi.mock('~~/server/utils/admin', () => ({ requirePlatformAdmin: routeMocks.requi
 vi.mock('~~/server/utils/database', () => ({ useDatabase: routeMocks.useDatabase }))
 vi.mock('~~/server/utils/same-origin', () => ({ requireSameOrigin: routeMocks.requireSameOrigin }))
 vi.mock('~~/server/utils/xrpl-rpc', () => ({ xrplRpc: routeMocks.xrplRpc }))
+vi.mock('../server/utils/database', () => ({ useDatabase: routeMocks.useDatabase }))
+vi.mock('../server/utils/xrpl-rpc', () => ({ xrplRpc: routeMocks.xrplRpc }))
 
 const databaseUrl = process.env.MVP_FUNDING_TEST_DATABASE_URL
 const runDatabaseTests = Boolean(databaseUrl)
@@ -258,6 +260,29 @@ describe.skipIf(!runDatabaseTests)('MVP funding capacity integration', () => {
     const [budget] = await database.select().from(projectFundingBudgets).where(eq(projectFundingBudgets.projectId, ids.projectB)).limit(1)
     expect(budget?.feeReservedDrops).toBe(0n)
     expect(budget?.feeSpentDrops).toBe(0n)
+  })
+
+  it('scopes shared treasury funding history to the requested project', async () => {
+    if (!database) return
+    const entryKeyA = `history-project-a-${randomUUID()}`
+    const entryKeyB = `history-project-b-${randomUUID()}`
+    await database.insert(fundingLedgerEntries).values([
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, type: 'reservation', feeDrops: 10n, idempotencyKey: entryKeyA, reason: 'project-a' },
+      { sponsorAccountId: ids.accountB, treasuryId: ids.treasury, type: 'reservation', feeDrops: 20n, idempotencyKey: entryKeyB, reason: 'project-b' }
+    ])
+    routeMocks.xrplRpc.mockImplementation(async (_rpcUrl: string, method: string) => {
+      if (method === 'account_info') return { account_data: { Balance: '1000000000', OwnerCount: 0 }, ledger_index: 1 }
+      if (method === 'server_state') return { state: { validated_ledger: { reserve_base: '0', reserve_inc: '0' } } }
+      throw new Error(`Unexpected RPC method ${method}`)
+    })
+    try {
+      const funding = await readProjectFunding({ projectId: ids.projectA, rpcUrl: 'http://test.invalid', network: 'devnet' })
+      expect(funding?.entries).toHaveLength(1)
+      expect(funding?.entries[0]?.sponsorAccountId).toBe(ids.accountA)
+      expect(funding?.entries[0]?.reason).toBe('project-a')
+    } finally {
+      await database.delete(fundingLedgerEntries).where(inArray(fundingLedgerEntries.idempotencyKey, [entryKeyA, entryKeyB]))
+    }
   })
 
   it('serializes first-project onboarding retries with a per-user advisory lock', async () => {
