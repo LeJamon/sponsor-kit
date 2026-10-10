@@ -57,27 +57,21 @@ const displayItems = computed(() => data.value?.items.map(intent => ({ ...intent
         v-else-if="displayItems.length"
         class="divide-y divide-[#E9F0FA]"
       >
-        <component
-          :is="intent.explorerUrl ? 'a' : 'div'"
+        <NuxtLink
           v-for="intent in displayItems"
           :key="intent.id"
-          :href="intent.explorerUrl"
-          :target="intent.explorerUrl ? '_blank' : undefined"
-          :rel="intent.explorerUrl ? 'noopener noreferrer' : undefined"
-          :title="intent.explorerUrl ? 'Open transaction in XRPL Explorer' : undefined"
-          class="grid items-center gap-3 px-5 py-4 text-sm lg:grid-cols-[1.1fr_1fr_1fr_1fr_auto_auto]"
-          :class="intent.explorerUrl ? 'group transition hover:bg-[#F7FAFF] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0A3DFF]' : undefined"
+          :to="`/app/intents/${intent.id}`"
+          class="group grid items-center gap-3 px-5 py-4 text-sm transition hover:bg-[#F7FAFF] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0A3DFF] lg:grid-cols-[1.1fr_1fr_1fr_1fr_auto_auto]"
         >
           <span class="font-mono text-xs">{{ intent.id }}</span><span>{{ shortenAddress(intent.accountAddress) }}</span><span>{{ intent.canonicalTransaction.TransactionType }}</span><span>{{ intent.policy ? `${intent.policy.name} · v${intent.policy.version}` : 'No policy' }}</span><IntentStatus :status="intent.state" /><div class="text-right">
             <p>{{ formatDropsAsXrp(intent.estimatedReserveDrops !== '0' ? intent.estimatedReserveDrops : intent.estimatedFeeDrops) }}</p><p class="text-xs text-[#62789C]">
               {{ formatDateTime(intent.createdAt) }}<UIcon
-                v-if="intent.explorerUrl"
-                name="i-lucide-external-link"
+                name="i-lucide-arrow-up-right"
                 class="ml-1 inline size-3.5 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
               />
             </p>
           </div>
-        </component>
+        </NuxtLink>
       </div>
       <div
         v-else
@@ -87,7 +81,12 @@ const displayItems = computed(() => data.value?.items.map(intent => ({ ...intent
           No matching intents
         </p><p class="mt-1 text-sm text-[#62789C]">
           New requests appear here after the backend creates a sponsorship intent.
-        </p>
+        </p><UButton
+          to="/app/first-payment"
+          label="Make your first sponsored payment"
+          class="mt-5"
+          trailing-icon="i-lucide-arrow-right"
+        />
       </div>
     </section>
   </div>

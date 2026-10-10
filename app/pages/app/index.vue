@@ -5,6 +5,7 @@ definePageMeta({ layout: 'dashboard' })
 const { data: context } = await useFetch('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
 const { data, status, error, refresh } = await useAsyncData('project-overview', () => projectId.value ? $fetch(`/api/console/projects/${projectId.value}/overview`) : Promise.resolve(null), { watch: [projectId] })
+const { data: readiness, error: readinessError, refresh: refreshReadiness } = await useFetch<{ ready: boolean }>('/api/console/readiness')
 </script>
 
 <template>
@@ -15,12 +16,29 @@ const { data, status, error, refresh } = await useAsyncData('project-overview', 
       description="Validated Devnet activity, sponsor capacity, and recent intents from the backend."
     >
       <UButton
-        to="/docs"
-        label="Integration guide"
-        icon="i-lucide-book-open"
+        to="/app/first-payment"
+        label="Make first payment"
+        icon="i-lucide-send"
         color="primary"
       />
     </ConsolePageHeader>
+    <UAlert
+      v-if="!context?.projects?.length"
+      color="warning"
+      variant="subtle"
+      icon="i-lucide-panels-top-left"
+      title="Finish setting up your one-project Devnet pilot"
+      description="Create the authenticated project and run live network readiness checks before using the sponsorship flow."
+    >
+      <template #actions>
+        <UButton
+          to="/app/setup"
+          label="Open setup"
+          color="warning"
+          variant="soft"
+        />
+      </template>
+    </UAlert>
     <UAlert
       v-if="error"
       color="error"
@@ -74,6 +92,71 @@ const { data, status, error, refresh } = await useAsyncData('project-overview', 
           icon="i-lucide-anchor"
         />
       </div>
+      <UAlert
+        v-if="readinessError || readiness?.ready === false"
+        class="mt-6"
+        color="warning"
+        variant="subtle"
+        icon="i-lucide-triangle-alert"
+        title="Sponsorship is waiting on network readiness"
+        :description="readinessError?.message || 'One or more live Devnet checks need attention before a new intent can be created.'"
+      >
+        <template #actions>
+          <div class="flex flex-wrap gap-2">
+            <UButton
+              to="/app/setup"
+              label="Review checks"
+              color="warning"
+              variant="soft"
+            /><UButton
+              label="Refresh"
+              color="warning"
+              variant="ghost"
+              @click="() => refreshReadiness()"
+            />
+          </div>
+        </template>
+      </UAlert>
+      <section class="acme-card mt-6 overflow-hidden">
+        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#D9E5F7] px-5 py-4">
+          <div>
+            <p class="acme-kicker">
+              Self-service pilot
+            </p>
+            <h2 class="mt-1 font-semibold">
+              Make a real sponsored Devnet payment
+            </h2>
+            <p class="mt-1 text-xs text-[#62789C]">
+              Use a disposable browser wallet, review the canonical transaction, and watch validated finality.
+            </p>
+          </div>
+          <UButton
+            to="/app/first-payment"
+            label="Start guided payment"
+            trailing-icon="i-lucide-arrow-right"
+          />
+        </div>
+        <div class="grid gap-3 px-5 py-4 text-sm sm:grid-cols-3">
+          <div class="flex items-center gap-2">
+            <UIcon
+              name="i-lucide-wallet-cards"
+              class="size-4 text-[#0A3DFF]"
+            /><span>Disposable wallet stays in memory</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <UIcon
+              name="i-lucide-file-check-2"
+              class="size-4 text-[#0A3DFF]"
+            /><span>Exact fields shown before signing</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <UIcon
+              name="i-lucide-activity"
+              class="size-4 text-[#0A3DFF]"
+            /><span>Live finality updates</span>
+          </div>
+        </div>
+      </section>
       <section class="acme-card mt-6 overflow-hidden">
         <div class="flex items-center justify-between border-b border-[#D9E5F7] px-5 py-4">
           <div>

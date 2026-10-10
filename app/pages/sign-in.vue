@@ -66,7 +66,12 @@ async function submit() {
             required
             class="w-full"
             size="lg"
-          />
+          /><template #hint>
+            <NuxtLink
+              to="/forgot-password"
+              class="font-semibold text-[#0A3DFF]"
+            >Forgot password?</NuxtLink>
+          </template>
         </UFormField><UButton
           type="submit"
           label="Sign in"

@@ -343,29 +343,29 @@ const sponsoredFee = computed(() =>
                   WALLET INVENTORY
                 </p>
                 <p class="mt-1 font-mono text-sm">
-                  rH8...2Zm
+                  Live after wallet inspection
                 </p>
               </div>
               <UBadge
-                label="Validated ledger"
-                color="success"
+                label="Uses live ledger data"
+                color="primary"
               />
             </div>
             <div class="mt-7 space-y-3.5">
               <div
                 class="flex items-center justify-between gap-4 rounded-xl border border-white/4 bg-white/7 px-5 py-4"
               >
-                <span class="font-medium">Transaction fees</span><span class="text-right text-sm font-semibold text-blue-200">Ready now</span>
+                <span class="font-medium">Transaction fees</span><span class="text-right text-sm font-semibold text-blue-200">Live estimate</span>
               </div>
               <div
                 class="flex items-center justify-between gap-4 rounded-xl border border-white/4 bg-white/7 px-5 py-4"
               >
-                <span class="font-medium">3 eligible objects</span><span class="text-right text-sm font-semibold text-blue-200">Transfer required</span>
+                <span class="font-medium">Reserve objects</span><span class="text-right text-sm font-semibold text-blue-200">Inspected on demand</span>
               </div>
               <div
                 class="flex items-center justify-between gap-4 rounded-xl border border-white/4 bg-white/7 px-5 py-4"
               >
-                <span class="font-medium">1 unsupported object</span><span class="text-right text-sm font-semibold text-slate-300">Unchanged</span>
+                <span class="font-medium">Unsupported objects</span><span class="text-right text-sm font-semibold text-slate-300">Reported with reason</span>
               </div>
             </div>
           </div>

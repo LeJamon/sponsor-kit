@@ -9,12 +9,34 @@ type Overview = {
   network: Array<{ id: string, network: string, networkId: number, ledgerIndex: number, definitionsHash: string, amendmentId: string, serverVersion: string, endpointHealthy: boolean, observedAt: string }>
   audit: Array<{ id: string, action: string, actor: string, resourceType: string, resourceId: string, result: string, createdAt: string }>
 }
+type DeadLetterEvent = {
+  id: string
+  aggregateType: string
+  aggregateId: string
+  eventType: string
+  attempts: number
+  lockVersion: number
+  lastError: string | null
+  deadLetteredAt: string | null
+  createdAt: string
+}
+type DeadLetterResponse = { events: DeadLetterEvent[], count: number }
 
 const { data, status, error, refresh } = await useFetch<Overview>('/api/admin/overview')
+const {
+  data: deadLetters,
+  status: deadLetterStatus,
+  error: deadLetterLoadError,
+  refresh: refreshDeadLetters
+} = await useAsyncData<DeadLetterResponse>('admin-dead-letters', () => $fetch('/api/admin/outbox/dead-letters?limit=50'))
 const showControl = ref(false)
 const reason = ref('')
 const changingControl = ref(false)
 const controlError = ref('')
+const recoveryEventId = ref<string | null>(null)
+const recoveryReason = ref('')
+const recoveringEventId = ref<string | null>(null)
+const deadLetterMutationError = ref('')
 
 function formatXrp(drops: string | undefined) {
   if (!drops) return '—'
@@ -44,6 +66,31 @@ async function updateControl() {
     controlError.value = requestError instanceof Error ? requestError.message : 'The control update failed.'
   } finally {
     changingControl.value = false
+  }
+}
+
+function openRecovery(eventId: string) {
+  recoveryEventId.value = recoveryEventId.value === eventId ? null : eventId
+  recoveryReason.value = ''
+  deadLetterMutationError.value = ''
+}
+
+async function recoverDeadLetter(deadLetter: DeadLetterEvent) {
+  if (recoveryReason.value.trim().length < 8) return
+  recoveringEventId.value = deadLetter.id
+  deadLetterMutationError.value = ''
+  try {
+    await $fetch(`/api/admin/outbox/dead-letters/${deadLetter.id}/recover`, {
+      method: 'POST',
+      body: { expectedLockVersion: deadLetter.lockVersion, reason: recoveryReason.value.trim() }
+    })
+    recoveryEventId.value = null
+    recoveryReason.value = ''
+    await Promise.all([refresh(), refreshDeadLetters()])
+  } catch (requestError: unknown) {
+    deadLetterMutationError.value = requestError instanceof Error ? requestError.message : 'Dead-letter recovery failed.'
+  } finally {
+    recoveringEventId.value = null
   }
 }
 
@@ -189,6 +236,125 @@ const serviceRows = computed(() => {
           icon="i-lucide-anchor"
         />
       </div>
+
+      <section class="acme-card mt-6 overflow-hidden">
+        <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[#D9E5F7] px-5 py-4">
+          <div>
+            <h2 class="font-semibold">
+              Dead-lettered outbox events
+            </h2><p class="mt-1 text-xs text-[#62789C]">
+              Review failed deliveries and requeue the existing signed payload after the cause is understood.
+            </p>
+          </div>
+          <UButton
+            label="Refresh dead letters"
+            icon="i-lucide-refresh-cw"
+            color="neutral"
+            variant="outline"
+            :loading="deadLetterStatus === 'pending'"
+            @click="refreshDeadLetters()"
+          />
+        </div>
+        <UAlert
+          v-if="deadLetterLoadError"
+          class="m-5"
+          color="error"
+          variant="subtle"
+          title="Dead-letter queue is unavailable"
+          :description="deadLetterLoadError.message"
+        />
+        <div
+          v-else-if="deadLetterStatus === 'pending' && !deadLetters"
+          class="space-y-3 p-5"
+        >
+          <USkeleton
+            v-for="index in 2"
+            :key="index"
+            class="h-24 rounded-xl"
+          />
+        </div>
+        <div
+          v-else-if="deadLetters?.events.length"
+          class="divide-y divide-[#E9F0FA]"
+        >
+          <article
+            v-for="deadLetter in deadLetters.events"
+            :key="deadLetter.id"
+            class="px-5 py-4"
+          >
+            <div class="flex flex-wrap items-start justify-between gap-4">
+              <div class="min-w-0">
+                <p class="font-mono text-xs font-semibold">
+                  {{ deadLetter.eventType }}
+                </p>
+                <p class="mt-1 break-all text-xs text-[#62789C]">
+                  {{ deadLetter.aggregateType }} · {{ deadLetter.aggregateId }} · {{ deadLetter.attempts }} attempts
+                </p>
+                <p class="mt-2 text-sm text-[#8F3D28]">
+                  {{ deadLetter.lastError || 'No error detail was recorded.' }}
+                </p>
+                <p class="mt-1 text-xs text-[#62789C]">
+                  Dead-lettered {{ deadLetter.deadLetteredAt ? new Date(deadLetter.deadLetteredAt).toLocaleString() : '—' }} · lock version {{ deadLetter.lockVersion }}
+                </p>
+              </div>
+              <UButton
+                :label="recoveryEventId === deadLetter.id ? 'Close recovery' : 'Recover event'"
+                :icon="recoveryEventId === deadLetter.id ? 'i-lucide-x' : 'i-lucide-rotate-ccw'"
+                color="warning"
+                variant="soft"
+                @click="openRecovery(deadLetter.id)"
+              />
+            </div>
+            <form
+              v-if="recoveryEventId === deadLetter.id"
+              class="mt-4 rounded-xl bg-[#FFF8ED] p-4"
+              @submit.prevent="recoverDeadLetter(deadLetter)"
+            >
+              <p class="text-sm font-medium">
+                Confirm requeue
+              </p><p class="mt-1 text-xs leading-5 text-[#62789C]">
+                The worker will retry this existing payload. It will not create a new sponsor signature or release a reservation.
+              </p>
+              <UFormField
+                class="mt-3"
+                label="Recovery reason"
+                :error="deadLetterMutationError || undefined"
+              >
+                <UTextarea
+                  v-model="recoveryReason"
+                  class="w-full"
+                  minlength="8"
+                  maxlength="500"
+                  placeholder="Describe the fix or verification completed…"
+                />
+              </UFormField>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <UButton
+                  type="submit"
+                  label="Requeue signed payload"
+                  icon="i-lucide-rotate-ccw"
+                  color="warning"
+                  :loading="recoveringEventId === deadLetter.id"
+                  :disabled="recoveryReason.trim().length < 8"
+                />
+                <UButton
+                  type="button"
+                  label="Cancel"
+                  color="neutral"
+                  variant="ghost"
+                  @click="openRecovery(deadLetter.id)"
+                />
+              </div>
+            </form>
+          </article>
+        </div>
+        <div
+          v-else
+          class="px-5 py-10 text-center text-sm text-[#62789C]"
+        >
+          No dead-lettered events need recovery.
+        </div>
+      </section>
 
       <div class="mt-6 grid gap-6 xl:grid-cols-2">
         <section class="acme-card overflow-hidden">

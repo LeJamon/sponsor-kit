@@ -4,19 +4,45 @@ import { authClient } from '~~/lib/auth-client'
 const form = reactive({ name: '', organization: '', email: '', password: '', terms: false })
 const loading = ref(false)
 const error = ref('')
+const accountCreated = ref(false)
+const setupRecovery = ref(false)
+
+async function finishSetup() {
+  try {
+    await $fetch('/api/onboarding', { method: 'POST', body: { organizationName: form.organization } })
+    await navigateTo('/app')
+  } catch (requestError: unknown) {
+    // The account session already exists. Let the user retry setup without
+    // submitting sign-up again or creating another authentication user.
+    setupRecovery.value = true
+    error.value = requestError instanceof Error ? requestError.message : 'Your account is ready, but project setup needs another try.'
+  }
+}
 
 async function submit() {
   if (!form.terms) return
   error.value = ''
+  setupRecovery.value = false
   loading.value = true
-  const result = await authClient.signUp.email({ name: form.name, email: form.email, password: form.password })
-  loading.value = false
-  if (result.error) {
-    error.value = result.error.message || 'Unable to create the account.'
-    return
+  try {
+    if (!accountCreated.value) {
+      const result = await authClient.signUp.email({ name: form.name, email: form.email, password: form.password })
+      if (result.error) {
+        error.value = result.error.message || 'Unable to create the account.'
+        return
+      }
+      accountCreated.value = true
+    }
+    await finishSetup()
+  } catch {
+    // A response timeout does not prove whether the auth provider committed the
+    // user. Offer the existing recovery paths instead of submitting sign-up a
+    // second time and risking a duplicate-user error.
+    setupRecovery.value = true
+    error.value = 'The sign-up request was interrupted. If your account was created, sign in and resume project setup without submitting sign-up again.'
+  } finally {
+    loading.value = false
   }
-  await $fetch('/api/onboarding', { method: 'POST', body: { organizationName: form.organization } })
-  await navigateTo('/app')
 }
 </script>
 
@@ -35,7 +61,30 @@ async function submit() {
         color="error"
         variant="subtle"
         class="mt-5"
-      /><form
+      /><UAlert
+        v-if="setupRecovery"
+        class="mt-5"
+        color="warning"
+        variant="subtle"
+        title="Setup can be resumed"
+        description="If sign-up completed, sign in and open setup to retry the one-project Devnet configuration without creating another account."
+      >
+        <template #actions>
+          <div class="flex flex-wrap gap-2">
+            <UButton
+              to="/app/setup"
+              label="Resume project setup"
+              color="warning"
+              variant="soft"
+            /><UButton
+              to="/sign-in"
+              label="Sign in"
+              color="neutral"
+              variant="ghost"
+            />
+          </div>
+        </template>
+      </UAlert><form
         class="mt-7 grid gap-5 sm:grid-cols-2"
         @submit.prevent="submit"
       >
@@ -80,7 +129,7 @@ async function submit() {
         </UFormField><UCheckbox
           v-model="form.terms"
           required
-          label="I agree to the terms and privacy policy"
+          label="I understand this is a disposable Devnet pilot wallet and I will not use real funds"
           class="sm:col-span-2"
         /><UButton
           type="submit"

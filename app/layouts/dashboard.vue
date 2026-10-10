@@ -10,6 +10,7 @@ const selected = computed(() => context.value?.projects?.[0])
 
 const baseNavigation = [
   { label: 'Overview', icon: 'i-lucide-layout-dashboard', to: '/app' },
+  { label: 'First sponsored payment', icon: 'i-lucide-send', to: '/app/first-payment' },
   { label: 'Intents', icon: 'i-lucide-list-checks', to: '/app/intents' },
   { label: 'Policies', icon: 'i-lucide-shield-check', to: '/app/policies' },
   { label: 'Reserve migration', icon: 'i-lucide-arrow-left-right', to: '/app/reserves/migrate' },
@@ -37,18 +38,18 @@ async function signOut() {
       <NuxtLink to="/app"><AppLogo /></NuxtLink>
       <div class="mt-7 rounded-xl border border-[#D9E5F7] bg-[#F7FAFF] p-3">
         <p class="text-xs font-medium text-[#62789C]">
-          ORGANIZATION / PROJECT
+          DEVNET PILOT
         </p>
         <p class="mt-1.5 text-sm font-semibold text-[#10244A]">
-          {{ selected ? `${selected.organization.name} / ${selected.project.name}` : 'No project configured' }}
+          {{ selected ? selected.project.name : 'Setup required' }}
         </p>
         <div class="mt-2 flex gap-2">
           <UBadge
-            :label="selected?.project.network || 'Unknown'"
+            label="Devnet"
             color="primary"
             variant="subtle"
           /><UBadge
-            :label="selected?.project.environment || 'Unknown'"
+            label="One project"
             color="neutral"
             variant="subtle"
           />
@@ -106,9 +107,9 @@ async function signOut() {
           />
           <div>
             <p class="text-xs font-medium text-[#62789C]">
-              PROJECT
+              DEVNET PILOT
             </p><p class="text-sm font-semibold">
-              {{ selected ? `${selected.project.name} · ${selected.project.network}` : 'No active project' }}
+              {{ selected ? selected.project.name : 'Setup required' }}
             </p>
           </div>
         </div>

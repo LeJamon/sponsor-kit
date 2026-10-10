@@ -18,7 +18,10 @@ const createdSecret = ref('')
 const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
 const mutationError = ref('')
 const saving = ref(false)
+const appOrigin = ref('')
+const envCopied = ref(false)
 let copyResetTimer: ReturnType<typeof setTimeout> | undefined
+let envCopyTimer: ReturnType<typeof setTimeout> | undefined
 
 const copyLabel = computed(() => copyState.value === 'copied' ? 'Copied' : copyState.value === 'failed' ? 'Copy failed' : 'Copy')
 const copyIcon = computed(() => copyState.value === 'copied' ? 'i-lucide-check' : copyState.value === 'failed' ? 'i-lucide-triangle-alert' : 'i-lucide-copy')
@@ -61,7 +64,28 @@ async function copySecret() {
 
 onBeforeUnmount(() => {
   if (copyResetTimer) clearTimeout(copyResetTimer)
+  if (envCopyTimer) clearTimeout(envCopyTimer)
 })
+
+onMounted(() => {
+  appOrigin.value = window.location.origin
+})
+
+async function copyEnvironmentTemplate() {
+  const projectPublicId = projectId.value
+  if (!projectPublicId) return
+  const template = `ACME_BASE_URL=${appOrigin.value || window.location.origin}\nACME_PROJECT_ID=${projectPublicId}\nACME_API_KEY=paste-the-secret-shown-above`
+  try {
+    await navigator.clipboard.writeText(template)
+    envCopied.value = true
+    if (envCopyTimer) clearTimeout(envCopyTimer)
+    envCopyTimer = setTimeout(() => {
+      envCopied.value = false
+    }, 2_000)
+  } catch {
+    envCopied.value = false
+  }
+}
 </script>
 
 <template>
@@ -135,6 +159,34 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </UAlert>
+    <section class="acme-card mb-6 p-5 sm:p-6">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p class="acme-kicker">
+            Integration quickstart
+          </p>
+          <h2 class="mt-1 font-semibold">
+            Move from the demo to your backend
+          </h2>
+          <p class="mt-2 max-w-2xl text-sm leading-6 text-[#62789C]">
+            Use a project API key only in your server environment. The browser signing flow does not need this key; your backend uses it to create and read sponsorship intents.
+          </p>
+        </div>
+        <UButton
+          :label="envCopied ? 'Copied' : 'Copy env template'"
+          :icon="envCopied ? 'i-lucide-check' : 'i-lucide-copy'"
+          color="neutral"
+          variant="outline"
+          @click="copyEnvironmentTemplate"
+        />
+      </div>
+      <pre class="mt-5 overflow-auto rounded-xl bg-[#071733] p-4 text-xs leading-5 text-[#DCEBFF]">ACME_BASE_URL={{ appOrigin || 'https://your-console.example' }}
+ACME_PROJECT_ID={{ projectId || 'your_project_public_id' }}
+ACME_API_KEY=paste-the-secret-shown-once</pre>
+      <p class="mt-3 text-xs leading-5 text-[#62789C]">
+        The secret is shown only when created and cannot be retrieved later. See the integration guide for the runnable Payment example.
+      </p>
+    </section>
     <UAlert
       v-if="error"
       color="error"

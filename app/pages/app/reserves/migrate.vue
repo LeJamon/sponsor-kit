@@ -3,9 +3,11 @@ import { formatDropsAsXrp } from '~/utils/format'
 
 definePageMeta({ layout: 'dashboard' })
 type Target = { id: string, targetKey: string, objectId: string | null, objectType: string, classification: string, state: string, estimatedReserveDrops: string, reason?: string, observedSponsor?: string | null, intent: { id: string, state: string, transactionHash: string | null, ledgerIndex: number | null } | null }
-type Plan = { id: string, accountAddress: string, definitionsHash: string, inspectionLedgerIndex: number, inspectionLedgerHash: string, expiresAt: string, targets: Target[] }
+type Plan = { id: string, accountAddress: string, definitionsHash: string, inspectionLedgerIndex: number, inspectionLedgerHash: string, expiresAt: string, state?: string, version?: number, targets: Target[] }
 type PreparedIntent = { id: string, state: string, transaction: Record<string, unknown>, grant: string, expiresAt: string, definitionsHash: string }
 
+const route = useRoute()
+const router = useRouter()
 const { data: context } = await useFetch('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
 const address = ref('')
@@ -16,6 +18,9 @@ const signedBlob = ref('')
 const busy = ref(false)
 const errorMessage = ref('')
 const authorizeResult = ref<{ state: string, transactionHash: string } | null>(null)
+const savedPlans = ref<Plan[]>([])
+const loadingSavedPlans = ref(false)
+const savedPlansError = ref('')
 const eligible = computed(() => plan.value?.targets.filter(target => target.classification === 'eligible') || [])
 const selectedReserve = computed(() => eligible.value.filter(target => selected.value.includes(target.id)).reduce((total, target) => total + BigInt(target.estimatedReserveDrops), 0n))
 const activeState = computed(() => plan.value?.targets.find(target => target.intent?.id === activeIntent.value?.id)?.intent?.state)
@@ -27,9 +32,49 @@ function message(error: unknown, fallback: string) {
     : error instanceof Error ? error.message : fallback
 }
 
+function statusCode(error: unknown) {
+  if (!error || typeof error !== 'object') return undefined
+  if ('statusCode' in error && typeof error.statusCode === 'number') return error.statusCode
+  if ('status' in error && typeof error.status === 'number') return error.status
+  if ('response' in error && error.response && typeof error.response === 'object' && 'status' in error.response && typeof error.response.status === 'number') return error.response.status
+  return undefined
+}
+
 async function loadPlan() {
   if (!projectId.value || !plan.value) return
   plan.value = await $fetch(`/api/console/projects/${projectId.value}/reserve-migration-plans/${plan.value.id}`)
+}
+
+async function loadSavedPlans() {
+  if (!projectId.value) return
+  loadingSavedPlans.value = true
+  savedPlansError.value = ''
+  try {
+    const result = await $fetch<{ plans: Plan[] }>(`/api/console/projects/${projectId.value}/reserve-migration-plans`)
+    savedPlans.value = result.plans || []
+  } catch (error: unknown) {
+    savedPlansError.value = message(error, 'Saved migration plans are unavailable.')
+  } finally {
+    loadingSavedPlans.value = false
+  }
+}
+
+async function openPlan(planId: string) {
+  if (!projectId.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    plan.value = await $fetch(`/api/console/projects/${projectId.value}/reserve-migration-plans/${planId}`)
+    selected.value = eligible.value.filter(target => !target.intent).map(target => target.id)
+    activeIntent.value = null
+    signedBlob.value = ''
+    authorizeResult.value = null
+    await router.replace({ query: { plan: planId } })
+  } catch (error: unknown) {
+    errorMessage.value = message(error, 'The saved migration plan could not be opened.')
+  } finally {
+    busy.value = false
+  }
 }
 
 async function inspect() {
@@ -43,6 +88,8 @@ async function inspect() {
     selected.value = eligible.value.map(target => target.id)
     activeIntent.value = null
     signedBlob.value = ''
+    await router.replace({ query: { plan: plan.value.id } })
+    await loadSavedPlans()
   } catch (error: unknown) {
     errorMessage.value = message(error, 'Reserve inspection failed.')
   } finally {
@@ -59,8 +106,25 @@ async function prepare(target: Target) {
     signedBlob.value = ''
     authorizeResult.value = null
     await loadPlan()
+    await router.replace({ query: { plan: plan.value.id, target: target.id } })
   } catch (error: unknown) {
     errorMessage.value = message(error, 'Transfer preparation failed.')
+  } finally {
+    busy.value = false
+  }
+}
+
+async function resumeTarget(target: Target) {
+  if (!projectId.value || !target.intent || !plan.value) return
+  busy.value = true
+  errorMessage.value = ''
+  try {
+    activeIntent.value = await $fetch(`/api/console/projects/${projectId.value}/intents/${target.intent.id}/signing-package`, { method: 'POST' as never })
+    signedBlob.value = ''
+    authorizeResult.value = null
+    await router.replace({ query: { plan: plan.value.id, target: target.id } })
+  } catch (error: unknown) {
+    errorMessage.value = message(error, 'This signing package expired. Inspect the wallet again to prepare a fresh transfer.')
   } finally {
     busy.value = false
   }
@@ -74,7 +138,14 @@ async function authorize() {
     authorizeResult.value = await $fetch(`/api/v1/intents/${activeIntent.value.id}/authorize`, { method: 'POST', body: { grant: activeIntent.value.grant, signedTransaction: signedBlob.value.trim() } })
     await loadPlan()
   } catch (error: unknown) {
-    errorMessage.value = message(error, 'Signed transfer authorization failed.')
+    const status = statusCode(error)
+    const outcomeUnknown = status === undefined || status === 408 || status === 409 || (status >= 500 && status <= 599)
+    if (outcomeUnknown) {
+      errorMessage.value = 'The authorization outcome is unknown. Refresh the plan before retrying this exact signed transfer.'
+      await loadPlan()
+    } else {
+      errorMessage.value = message(error, 'Signed transfer authorization failed.')
+    }
   } finally {
     busy.value = false
   }
@@ -88,10 +159,14 @@ function continueQueue() {
   activeIntent.value = null
   authorizeResult.value = null
   signedBlob.value = ''
+  if (plan.value) void router.replace({ query: { plan: plan.value.id } })
 }
 
 let poll: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
+  void loadSavedPlans()
+  const routePlanId = typeof route.query.plan === 'string' ? route.query.plan : undefined
+  if (routePlanId) void openPlan(routePlanId)
   poll = setInterval(() => {
     if (plan.value && activeIntent.value) void loadPlan()
   }, 4_000)
@@ -156,6 +231,81 @@ onUnmounted(() => {
       </div>
     </section>
 
+    <section
+      v-if="!plan"
+      class="acme-card mx-auto mt-6 max-w-2xl overflow-hidden"
+    >
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#D9E5F7] px-5 py-4">
+        <div>
+          <h2 class="font-semibold">
+            Saved migration plans
+          </h2>
+          <p class="mt-1 text-xs text-[#62789C]">
+            Plans are pinned to a validated ledger and can be reopened after navigation or a reload.
+          </p>
+        </div>
+        <UButton
+          label="Refresh saved plans"
+          icon="i-lucide-refresh-cw"
+          color="neutral"
+          variant="ghost"
+          :loading="loadingSavedPlans"
+          @click="loadSavedPlans"
+        />
+      </div>
+      <UAlert
+        v-if="savedPlansError"
+        class="m-5"
+        color="error"
+        variant="subtle"
+        title="Saved plans are unavailable"
+        :description="savedPlansError"
+      />
+      <div
+        v-else-if="loadingSavedPlans && !savedPlans.length"
+        class="space-y-3 p-5"
+      >
+        <USkeleton
+          v-for="index in 2"
+          :key="index"
+          class="h-16 rounded-xl"
+        />
+      </div>
+      <div
+        v-else-if="savedPlans.length"
+        class="divide-y divide-[#E9F0FA]"
+      >
+        <div
+          v-for="savedPlan in savedPlans"
+          :key="savedPlan.id"
+          class="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
+        >
+          <div class="min-w-0">
+            <p class="break-all font-mono text-xs">
+              {{ savedPlan.accountAddress }}
+            </p>
+            <p class="mt-1 text-xs text-[#62789C]">
+              Ledger {{ savedPlan.inspectionLedgerIndex.toLocaleString() }} · expires {{ new Date(savedPlan.expiresAt).toLocaleString() }}
+            </p>
+          </div>
+          <UButton
+            label="Resume plan"
+            icon="i-lucide-rotate-ccw"
+            color="neutral"
+            variant="outline"
+            :loading="busy"
+            @click="openPlan(savedPlan.id)"
+          />
+        </div>
+      </div>
+      <p
+        v-else
+        class="px-5 py-8 text-center text-sm text-[#62789C]"
+      >
+        No saved plans yet. Inspect a Devnet wallet above to create one.
+      </p>
+    </section>
+
     <template v-else>
       <section class="acme-card mb-5 p-5 sm:flex sm:items-center sm:justify-between">
         <div>
@@ -202,6 +352,14 @@ onUnmounted(() => {
           </div><span class="hidden text-sm sm:block">{{ formatDropsAsXrp(target.estimatedReserveDrops) }}</span><IntentStatus
             v-if="target.intent"
             :status="target.intent.state"
+          /><UButton
+            v-if="target.intent?.state === 'awaiting_user_signature'"
+            label="Resume signing"
+            size="xs"
+            color="neutral"
+            variant="outline"
+            :loading="busy"
+            @click.prevent="resumeTarget(target)"
           /><UBadge
             v-else
             :label="target.classification.replace('_', ' ')"
@@ -216,7 +374,7 @@ onUnmounted(() => {
           label="Inspect another wallet"
           color="neutral"
           variant="ghost"
-          @click="plan = null"
+          @click="plan = null; activeIntent = null; void router.replace({ query: {} })"
         /><p class="text-sm text-[#62789C]">
           {{ selected.length }} selected · {{ formatDropsAsXrp(selectedReserve.toString()) }} estimated reserve
         </p>

@@ -1,6 +1,14 @@
 <script setup lang="ts">
-const { data, status, error, refresh } = await useFetch('/api/v1/health')
-const services = computed(() => Object.entries(data.value?.checks || {}).map(([name, check]) => ({ name, ...check })))
+type HealthReport = { status: string, checkedAt?: string, checks?: Record<string, { ok: boolean, detail?: string }> }
+const { data, status, error, refresh } = await useFetch<HealthReport>('/api/v1/health')
+const report = computed<HealthReport | null>(() => {
+  if (data.value) return data.value
+  const candidate = error.value?.data
+  if (!candidate || typeof candidate !== 'object') return null
+  const value = candidate as Partial<HealthReport>
+  return typeof value.status === 'string' && value.checks ? value as HealthReport : null
+})
+const services = computed(() => Object.entries(report.value?.checks || {}).map(([name, check]) => ({ name, ...check })))
 </script>
 
 <template>
@@ -8,16 +16,16 @@ const services = computed(() => Object.entries(data.value?.checks || {}).map(([n
     <div class="mx-auto max-w-2xl text-center">
       <div
         class="mx-auto grid size-16 place-items-center rounded-full"
-        :class="data?.status === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'"
+        :class="report?.status === 'ok' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'"
       >
         <UIcon
-          :name="data?.status === 'ok' ? 'i-lucide-circle-check' : 'i-lucide-triangle-alert'"
+          :name="report?.status === 'ok' ? 'i-lucide-circle-check' : status === 'pending' ? 'i-lucide-loader-circle' : 'i-lucide-triangle-alert'"
           class="size-8"
         />
       </div><h1 class="mt-6 text-4xl font-bold">
-        {{ data?.status === 'ok' ? 'All systems operational' : status === 'pending' ? 'Checking systems' : 'Service degraded' }}
+        {{ report?.status === 'ok' ? 'All systems operational' : status === 'pending' ? 'Checking systems' : report ? 'Service degraded' : 'Health status unavailable' }}
       </h1><p class="mt-3 text-[#62789C]">
-        {{ data?.checkedAt ? `Checked ${new Date(data.checkedAt).toLocaleString()}` : 'Live service health from ACME.' }}
+        {{ report?.checkedAt ? `Checked ${new Date(report.checkedAt).toLocaleString()}` : 'Live service health from ACME.' }}
       </p><UButton
         class="mt-5"
         label="Refresh"
@@ -28,13 +36,13 @@ const services = computed(() => Object.entries(data.value?.checks || {}).map(([n
         @click="refresh()"
       />
     </div><UAlert
-      v-if="error"
+      v-if="error && !report"
       class="mx-auto mt-8 max-w-2xl"
       color="error"
       title="Health endpoint unavailable"
       :description="error.message"
     /><div
-      v-else
+      v-if="report"
       class="acme-card mx-auto mt-10 max-w-2xl divide-y divide-[#E9F0FA]"
     >
       <div
