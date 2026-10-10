@@ -36,7 +36,7 @@ export const session = pgTable('session', {
 
 export const account = pgTable('account', {
   id: text('id').primaryKey(),
-  issuer: text('issuer').notNull(),
+  issuer: text('issuer'),
   accountId: text('account_id').notNull(),
   providerId: text('provider_id').notNull(),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -49,7 +49,7 @@ export const account = pgTable('account', {
   password: text('password'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
-}, table => [index('account_user_idx').on(table.userId), uniqueIndex('account_issuer_unique').on(table.issuer, table.accountId)])
+}, table => [index('account_user_idx').on(table.userId)])
 
 export const verification = pgTable('verification', {
   id: text('id').primaryKey(),

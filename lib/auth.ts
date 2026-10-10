@@ -15,6 +15,7 @@ export const auth = betterAuth({
     enabled: true,
     minPasswordLength: 12,
     maxPasswordLength: 128,
+    revokeSessionsOnPasswordReset: true,
     ...(sendResetPassword ? { sendResetPassword } : {})
   },
   session: {

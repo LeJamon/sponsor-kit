@@ -12,5 +12,6 @@ describe('Better Auth database schema', () => {
     expect(Object.keys(getTableColumns(session))).toEqual(expect.arrayContaining(Object.keys(expected.session.fields)))
     expect(Object.keys(getTableColumns(account))).toEqual(expect.arrayContaining(Object.keys(expected.account.fields)))
     expect(Object.keys(getTableColumns(verification))).toEqual(expect.arrayContaining(Object.keys(expected.verification.fields)))
+    expect(getTableColumns(account).issuer.notNull).toBe(false)
   })
 })
