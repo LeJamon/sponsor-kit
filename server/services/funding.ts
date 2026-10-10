@@ -67,6 +67,14 @@ async function ensureWalletQuota(tx: DatabaseTransaction, input: { projectId: st
   return quota
 }
 
+async function assertProjectTreasuryBinding(tx: DatabaseTransaction, input: { projectId: string, sponsorAccountId: string, treasuryId: string }) {
+  const [binding] = await tx.select({ treasuryId: sponsorAccounts.treasuryId }).from(projectSponsorAccounts)
+    .innerJoin(sponsorAccounts, eq(sponsorAccounts.id, projectSponsorAccounts.sponsorAccountId))
+    .where(and(eq(projectSponsorAccounts.projectId, input.projectId), eq(projectSponsorAccounts.sponsorAccountId, input.sponsorAccountId), eq(sponsorAccounts.projectId, input.projectId)))
+    .limit(1)
+  if (!binding || binding.treasuryId !== input.treasuryId) throw new Error('Sponsor treasury is not bound to project')
+}
+
 function nonNegative(value: bigint): bigint {
   return value > 0n ? value : 0n
 }
@@ -81,6 +89,7 @@ export async function reserveFundingCapacity(tx: DatabaseTransaction, input: {
   reserveDrops: bigint
   now: Date
 }) {
+  await assertProjectTreasuryBinding(tx, input)
   const balance = await ensureFundingBalance(tx, { sponsorAccountId: input.sponsorAccountId, treasuryId: input.treasuryId })
   const budget = await ensureProjectFundingBudget(tx, input.projectId, true)
   const periodStart = quotaPeriodStart(input.now, budget.quotaPeriodSeconds)
@@ -128,6 +137,7 @@ export async function releaseFundingReservation(tx: DatabaseTransaction, input: 
   now: Date
   periodStart?: Date | null
 }) {
+  await assertProjectTreasuryBinding(tx, input)
   const balance = await ensureFundingBalance(tx, { sponsorAccountId: input.sponsorAccountId, treasuryId: input.treasuryId })
   const budget = await ensureProjectFundingBudget(tx, input.projectId, true)
   const periodStart = input.periodStart || quotaPeriodStart(input.now, budget.quotaPeriodSeconds)
@@ -170,6 +180,7 @@ export async function captureFunding(tx: DatabaseTransaction, input: {
   now: Date
   periodStart?: Date | null
 }) {
+  await assertProjectTreasuryBinding(tx, input)
   const balance = await ensureFundingBalance(tx, { sponsorAccountId: input.sponsorAccountId, treasuryId: input.treasuryId })
   const budget = await ensureProjectFundingBudget(tx, input.projectId, true)
   const periodStart = input.periodStart || quotaPeriodStart(input.now, budget.quotaPeriodSeconds)

@@ -99,23 +99,12 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 409, statusMessage: 'The reserve target changed after intent preparation' })
     }
   }
-  const [ledger, accountInfo, sponsorInfo, serverState] = await Promise.all([
+  const [ledger, accountInfo] = await Promise.all([
     xrplRpc<{ info: { validated_ledger: { seq: number } } }>(context.project.rpcUrl, 'server_info', {}),
-    xrplRpc<{ account_data: { Sequence: number } }>(context.project.rpcUrl, 'account_info', { account: context.intent.accountAddress, ledger_index: 'validated', strict: true }),
-    xrplRpc<{ account_data: { Balance: string, OwnerCount?: number, SponsoredOwnerCount?: number, SponsoringOwnerCount?: number, SponsoringAccountCount?: number, Sponsor?: string } }>(context.project.rpcUrl, 'account_info', { account: context.sponsor.address, ledger_index: 'validated', strict: true }),
-    xrplRpc<{ state: { validated_ledger: { reserve_base: string | number, reserve_inc: string | number } } }>(context.project.rpcUrl, 'server_state', {})
+    xrplRpc<{ account_data: { Sequence: number } }>(context.project.rpcUrl, 'account_info', { account: context.intent.accountAddress, ledger_index: 'validated', strict: true })
   ])
   if (ledger.info.validated_ledger.seq >= Number(signedTransaction.LastLedgerSequence) - 1) throw createError({ statusCode: 409, statusMessage: 'Intent is too close to its ledger deadline; create a new intent' })
   if (accountInfo.account_data.Sequence !== Number(signedTransaction.Sequence)) throw createError({ statusCode: 409, statusMessage: 'Account sequence changed; create a new intent' })
-  const accountReserveDrops = BigInt(serverState.state.validated_ledger.reserve_base)
-  const objectReserveDrops = BigInt(serverState.state.validated_ledger.reserve_inc)
-  const sponsorData = sponsorInfo.account_data
-  const sponsoredObjects = BigInt(Math.max(0, (sponsorData.OwnerCount || 0) + (sponsorData.SponsoringOwnerCount || 0) - (sponsorData.SponsoredOwnerCount || 0)))
-  const sponsoredAccounts = BigInt(sponsorData.SponsoringAccountCount || 0)
-  const currentReserveDrops = (sponsorData.Sponsor ? 0n : accountReserveDrops) + objectReserveDrops * sponsoredObjects + accountReserveDrops * sponsoredAccounts
-  const observedBalanceDrops = BigInt(sponsorData.Balance)
-  const liveSpendableDrops = observedBalanceDrops > currentReserveDrops ? observedBalanceDrops - currentReserveDrops : 0n
-
   const now = new Date()
   const signed = await database.transaction(async (tx) => {
     const [lockedIntent] = await tx.select().from(sponsorshipIntents).where(eq(sponsorshipIntents.id, intentId)).for('update').limit(1)
@@ -157,6 +146,18 @@ export default defineEventHandler(async (event) => {
     if (!lockedPolicyDecision.allowed) throw createError({ statusCode: 403, statusMessage: lockedPolicyDecision.code, data: { reason: lockedPolicyDecision.reason } })
     const required = context.intent.estimatedFeeDrops + context.intent.estimatedReserveDrops
     const [sharedBalance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, lockedTreasury.id)).for('update').limit(1)
+    const [lockedSponsorInfo, lockedServerState] = await Promise.all([
+      xrplRpc<{ account_data: { Balance: string, OwnerCount?: number, SponsoredOwnerCount?: number, SponsoringOwnerCount?: number, SponsoringAccountCount?: number, Sponsor?: string } }>(lockedProject.rpcUrl, 'account_info', { account: lockedTreasury.address, ledger_index: 'validated', strict: true }),
+      xrplRpc<{ state: { validated_ledger: { reserve_base: string | number, reserve_inc: string | number } } }>(lockedProject.rpcUrl, 'server_state', {})
+    ])
+    const accountReserveDrops = BigInt(lockedServerState.state.validated_ledger.reserve_base)
+    const objectReserveDrops = BigInt(lockedServerState.state.validated_ledger.reserve_inc)
+    const sponsorData = lockedSponsorInfo.account_data
+    const sponsoredObjects = BigInt(Math.max(0, (sponsorData.OwnerCount || 0) + (sponsorData.SponsoringOwnerCount || 0) - (sponsorData.SponsoredOwnerCount || 0)))
+    const sponsoredAccounts = BigInt(sponsorData.SponsoringAccountCount || 0)
+    const currentReserveDrops = (sponsorData.Sponsor ? 0n : accountReserveDrops) + objectReserveDrops * sponsoredObjects + accountReserveDrops * sponsoredAccounts
+    const observedBalanceDrops = BigInt(sponsorData.Balance)
+    const liveSpendableDrops = observedBalanceDrops > currentReserveDrops ? observedBalanceDrops - currentReserveDrops : 0n
     const available = liveSpendableDrops - lockedTreasury.safetyBufferDrops - (sharedBalance?.pendingFeeDrops || 0n) - (sharedBalance?.pendingReserveDrops || 0n)
     if (available < required) throw createError({ statusCode: 409, statusMessage: 'Sponsor capacity is insufficient' })
     const sponsorSigned = await signer.signTransaction({
