@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { decode, encode, encodeForMultisigning, encodeForSigning } from 'ripple-binary-codec'
+import { decode, encode, encodeForMultisigning, encodeForSigning, encodeForSigningSponsor } from 'ripple-binary-codec'
 import { deriveAddress, verify } from 'ripple-keypairs'
 import type { SponsorProtocolDefinitions } from '../xrpl/definitions'
 import type { SponsorProtocolAdapter, XrplTransaction } from './types'
@@ -23,14 +23,14 @@ export class XrplSponsorAdapter implements SponsorProtocolAdapter {
       throw new Error('ADAPTER_SPONSOR_FLAGS_INVALID')
     }
     this.verifySponseeSignatures(input.transaction)
-    const signingPayloadHex = encodeForSigning(input.transaction, this.protocol.definitions)
+    const signingPayloadHex = encodeForSigningSponsor(input.transaction, this.protocol.definitions)
     return { signingPayloadHex, signingHash: sha512HalfHex(signingPayloadHex) }
   }
 
   async attach(input: { transaction: XrplTransaction, publicKey: string, signature: string }) {
     if (input.transaction.SponsorSignature) throw new Error('ADAPTER_SPONSOR_SIGNATURE_ALREADY_PRESENT')
     if (deriveAddress(input.publicKey) !== input.transaction.Sponsor) throw new Error('ADAPTER_PUBLIC_KEY_MISMATCH')
-    const signingPayloadHex = encodeForSigning(input.transaction, this.protocol.definitions)
+    const signingPayloadHex = encodeForSigningSponsor(input.transaction, this.protocol.definitions)
     if (!verify(signingPayloadHex, input.signature, input.publicKey)) throw new Error('ADAPTER_SIGNATURE_INVALID')
     const transaction = {
       ...input.transaction,

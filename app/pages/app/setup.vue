@@ -64,7 +64,7 @@ async function retryChecks() {
   <div class="mx-auto max-w-5xl">
     <ConsolePageHeader
       eyebrow="Workspace setup"
-      :title="hasProject ? 'Your Devnet pilot is ready' : 'Finish your Devnet pilot setup'"
+      :title="hasProject ? 'Your Devnet pilot setup' : 'Finish your Devnet pilot setup'"
       :description="hasProject ? 'ACME currently supports one project per workspace. This is the project your team will use for the pilot.' : 'Create the one Devnet project included in this pilot. You can safely retry this step if the network or service is temporarily unavailable.'"
     >
       <UButton
@@ -118,9 +118,11 @@ async function retryChecks() {
       >
         <UFormField
           label="Organization name"
+          name="organizationName"
           help="Use a short name your team will recognize in the pilot."
         >
           <UInput
+            id="setup-organization"
             v-model="form.organizationName"
             autocomplete="organization"
             class="w-full"

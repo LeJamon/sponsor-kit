@@ -2,7 +2,8 @@ import { XrplDefinitions, type XrplDefinitionsBase } from 'ripple-binary-codec'
 import { xrplRpc } from '../../utils/xrpl-rpc'
 
 export const SPONSOR_AMENDMENT_ID = 'BE1F90581635DBCEBFC4678C4B54FEDDC1A17B50FD02CFE765A4132A342126AC'
-export const DEVNET_DEFINITIONS_HASH = 'F3DCCAD774156538A6AB3E6003A41273D5AE394A90989204838AE52A006F245B'
+export const DEVNET_DEFINITIONS_HASH = '1EA05B0FC11101F7C500BD0DAC794A8BC746A7FBA6250B75489603EB820E0FF5'
+export const SPONSOR_PREFIX_AMENDMENT_ID = '98433DD001A5737F773D74F8CA2A25A065089C73B2E611C760BAF369E4FECA76'
 export const DEVNET_NETWORK_ID = 2
 
 type Feature = { enabled?: boolean, name?: string, supported?: boolean }
@@ -75,6 +76,11 @@ async function fetchSponsorDefinitions(rpcUrl: string, allowedHashes?: string[])
   const [amendmentId, feature] = sponsorFeature
   if (amendmentId !== SPONSOR_AMENDMENT_ID || !feature.supported || !feature.enabled) {
     throw new Error('XRPL_SPONSOR_NOT_ENABLED')
+  }
+
+  const prefixFeature = featureResult.features[SPONSOR_PREFIX_AMENDMENT_ID]
+  if (prefixFeature?.name !== 'fixCleanup3_4_0' || !prefixFeature.enabled || !prefixFeature.supported) {
+    throw new Error('XRPL_SPONSOR_SIGNING_PREFIX_NOT_ENABLED')
   }
 
   const definitionsHash = String(rawDefinitions.hash || '').toUpperCase()

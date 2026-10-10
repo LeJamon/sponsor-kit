@@ -1,10 +1,10 @@
-import { and, desc, eq, ilike, inArray, lt, or } from 'drizzle-orm'
+import { and, desc, eq, ilike, inArray, lt, or, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { sponsorshipIntents, sponsorshipPolicies, submissions } from '~~/server/database/schema'
 import { useDatabase } from '~~/server/utils/database'
 import { requireProjectMember } from '~~/server/utils/project-member'
 
-const querySchema = z.object({ search: z.string().max(100).optional(), status: z.string().optional(), cursor: z.coerce.date().optional(), limit: z.coerce.number().int().min(1).max(100).default(25) })
+const querySchema = z.object({ search: z.string().max(100).optional(), status: z.string().refine(value => value.split(',').every(state => sponsorshipIntents.state.enumValues.includes(state as typeof sponsorshipIntents.state.enumValues[number]))).optional(), cursor: z.coerce.date().optional(), limit: z.coerce.number().int().min(1).max(100).default(25) })
 
 export default defineEventHandler(async (event) => {
   const projectId = getRouterParam(event, 'projectId')
@@ -15,7 +15,7 @@ export default defineEventHandler(async (event) => {
   const filters = [eq(sponsorshipIntents.projectId, context.project.id)]
   if (parsed.data.cursor) filters.push(lt(sponsorshipIntents.createdAt, parsed.data.cursor))
   if (states?.length) filters.push(inArray(sponsorshipIntents.state, states as typeof sponsorshipIntents.state.enumValues))
-  if (parsed.data.search) filters.push(or(ilike(sponsorshipIntents.accountAddress, `%${parsed.data.search}%`), ilike(sponsorshipIntents.id, `%${parsed.data.search}%`))!)
+  if (parsed.data.search) filters.push(or(ilike(sponsorshipIntents.accountAddress, `%${parsed.data.search}%`), ilike(sql`${sponsorshipIntents.id}::text`, `%${parsed.data.search}%`))!)
   const rows = await useDatabase().select({ intent: sponsorshipIntents, policyName: sponsorshipPolicies.name, policyVersion: sponsorshipPolicies.version }).from(sponsorshipIntents)
     .leftJoin(sponsorshipPolicies, eq(sponsorshipPolicies.id, sponsorshipIntents.policyId))
     .where(and(...filters)).orderBy(desc(sponsorshipIntents.createdAt), desc(sponsorshipIntents.id)).limit(parsed.data.limit + 1)
@@ -31,7 +31,8 @@ export default defineEventHandler(async (event) => {
   }
   const items = page.map((row) => {
     const submission = latestSubmissionByIntent.get(row.intent.id)
-    return { ...row.intent, estimatedFeeDrops: row.intent.estimatedFeeDrops.toString(), estimatedReserveDrops: row.intent.estimatedReserveDrops.toString(), policy: row.policyName ? { name: row.policyName, version: row.policyVersion } : null, transactionHash: submission?.transactionHash || null, ledgerIndex: submission?.ledgerIndex || null, validatedAt: submission?.validatedAt || null }
+    const { userSignedBlob: _blob, sponsorSigningHash: _hash, ...intent } = row.intent
+    return { ...intent, estimatedFeeDrops: row.intent.estimatedFeeDrops.toString(), estimatedReserveDrops: row.intent.estimatedReserveDrops.toString(), policy: row.policyName ? { name: row.policyName, version: row.policyVersion } : null, transactionHash: submission?.transactionHash || null, ledgerIndex: submission?.ledgerIndex || null, validatedAt: submission?.validatedAt || null }
   })
   return { items, nextCursor: hasMore ? items.at(-1)?.createdAt : null }
 })

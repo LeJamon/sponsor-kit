@@ -3,6 +3,8 @@ import { clearDisposableWallet, createDisposableWallet, getDisposableWallet, sig
 import { formatDateTime, formatDropsAsXrp, shortenAddress } from '~/utils/format'
 import { transactionExplorerUrl } from '~/utils/explorer'
 
+const requestFetch = useRequestFetch()
+
 definePageMeta({ layout: 'dashboard' })
 
 type Context = { projects?: Array<{ project: { publicId: string, name: string, network: string } }> }
@@ -32,7 +34,7 @@ const terminalStates = new Set(['validated', 'failed', 'rejected', 'expired', 'c
 const context = await useFetch<Context>('/api/console/context')
 const projectId = computed(() => context.data.value?.projects?.[0]?.project.publicId)
 const { data: readiness, status: readinessStatus, error: readinessError, refresh: refreshReadiness } = await useFetch<Readiness>('/api/console/readiness')
-const { data: protocol, status: protocolStatus, error: protocolError } = await useAsyncData<Protocol | null>('devnet-protocol', () => projectId.value ? $fetch(`/api/console/projects/${projectId.value}/protocol`) : Promise.resolve(null), { watch: [projectId] })
+const { data: protocol, status: protocolStatus, error: protocolError } = await useAsyncData<Protocol | null>('devnet-protocol', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/protocol`) : Promise.resolve(null), { watch: [projectId] })
 
 const wallet = ref<DisposableWallet | null>(null)
 const fundResult = ref<FundResult | null>(null)
@@ -429,7 +431,7 @@ onBeforeUnmount(() => {
         v-for="(step, index) in progressSteps"
         :key="step.key"
         class="flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm"
-        :class="(stage === step.key || (step.key === 'waiting' && ['signed', 'waiting', 'success', 'failure'].includes(stage))) ? 'border-[#0A3DFF] bg-[#DCEBFF] text-[#0A3DFF]' : 'border-[#D9E5F7] bg-white text-[#62789C]'"
+        :class="(stage === step.key || (step.key === 'wallet' && stage === 'funding') || (step.key === 'review' && stage === 'signed') || (step.key === 'waiting' && ['waiting', 'success', 'failure'].includes(stage))) ? 'border-[#0A3DFF] bg-[#DCEBFF] text-[#0A3DFF]' : 'border-[#D9E5F7] bg-white text-[#62789C]'"
       >
         <span class="grid size-6 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold shadow-sm">{{ index + 1 }}</span>
         <span class="font-medium">{{ step.label }}</span>
@@ -563,7 +565,7 @@ onBeforeUnmount(() => {
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p class="acme-kicker">
-            Step 2 · Fund the demo wallet
+            Step 1 · Fund the demo wallet
           </p>
           <h2 class="mt-3 text-2xl font-bold tracking-tight">
             Get a small Devnet balance
@@ -635,7 +637,7 @@ onBeforeUnmount(() => {
       class="acme-card p-6 sm:p-8"
     >
       <p class="acme-kicker">
-        Step 3 · Payment details
+        Step 2 · Payment details
       </p>
       <h2 class="mt-3 text-2xl font-bold tracking-tight">
         Choose where the sponsored payment goes
@@ -712,7 +714,7 @@ onBeforeUnmount(() => {
     >
       <div class="border-b border-[#D9E5F7] p-6 sm:p-8">
         <p class="acme-kicker">
-          Step 4 · Review and sign
+          Step 3 · Review and sign
         </p>
         <div class="mt-3 flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -731,8 +733,8 @@ onBeforeUnmount(() => {
           />
         </div>
       </div>
-      <div class="grid gap-6 p-6 sm:p-8 lg:grid-cols-[.85fr_1.15fr]">
-        <div class="space-y-4 text-sm">
+      <div class="grid grid-cols-1 gap-6 p-6 sm:p-8 lg:grid-cols-[minmax(0,.85fr)_minmax(0,1.15fr)]">
+        <div class="min-w-0 space-y-4 text-sm">
           <div>
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-[#62789C]">
               Wallet
@@ -777,7 +779,7 @@ onBeforeUnmount(() => {
             Expires {{ formatDateTime(intent.expiresAt) }}. If the ledger deadline passes, create a fresh intent instead of reusing this one.
           </p>
         </div>
-        <div>
+        <div class="min-w-0">
           <p class="text-sm font-semibold">
             Canonical transaction JSON
           </p>
@@ -842,7 +844,7 @@ onBeforeUnmount(() => {
         /></span>
         <div>
           <p class="acme-kicker">
-            Step 5 · Settlement
+            Step 4 · Settlement
           </p>
           <h2 class="mt-2 text-2xl font-bold tracking-tight">
             Watching the validated ledger

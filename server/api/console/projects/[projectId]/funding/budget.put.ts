@@ -7,9 +7,9 @@ import { useDatabase } from '~~/server/utils/database'
 import { requireSameOrigin } from '~~/server/utils/same-origin'
 
 const drops = z.union([
-  z.string().regex(/^[0-9]+$/),
+  z.string().regex(/^[0-9]{1,18}$/),
   z.number().int().nonnegative().safe()
-]).transform(value => BigInt(value))
+]).transform(value => BigInt(value)).refine(value => value <= 100_000_000_000_000_000n, { message: 'Limit exceeds the maximum XRP supply' })
 
 const schema = z.object({
   expectedVersion: z.number().int().nonnegative().optional(),

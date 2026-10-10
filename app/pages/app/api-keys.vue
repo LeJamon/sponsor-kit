@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { formatDateTime } from '~/utils/format'
 
+const requestFetch = useRequestFetch()
+
 definePageMeta({ layout: 'dashboard' })
 type ApiKeyScope = 'intents:create' | 'intents:read' | 'usage:read'
 const scopeItems: Array<{ label: string, value: ApiKeyScope }> = [
@@ -10,7 +12,7 @@ const scopeItems: Array<{ label: string, value: ApiKeyScope }> = [
 ]
 const { data: context } = await useFetch('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data: keys, status, error, refresh } = await useAsyncData('project-api-keys', () => projectId.value ? $fetch(`/api/console/projects/${projectId.value}/api-keys`) : Promise.resolve([]), { watch: [projectId] })
+const { data: keys, status, error, refresh } = await useAsyncData('project-api-keys', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/api-keys`) : Promise.resolve([]), { watch: [projectId] })
 const open = ref(false)
 const name = ref('')
 const scopes = ref<ApiKeyScope[]>(['intents:create', 'intents:read'])

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { DEFAULT_DEFINITIONS, decode, encodeForSigning } from 'ripple-binary-codec'
+import { DEFAULT_DEFINITIONS, decode, encodeForSigning, encodeForSigningSponsor } from 'ripple-binary-codec'
 import { deriveAddress, deriveKeypair, generateSeed, sign, verify } from 'ripple-keypairs'
 import { describe, expect, it } from 'vitest'
 import { XrplSponsorAdapter } from '../server/services/signer/xrpl-adapter'
@@ -47,7 +47,8 @@ describe('XrplSponsorAdapter', () => {
     const attached = await adapter.attach({ transaction, publicKey: sponsor.publicKey, signature: sponsorSignature })
 
     expect(verify(prepared.signingPayloadHex, sponsorSignature, sponsor.publicKey)).toBe(true)
-    expect(encodeForSigning(attached.transaction, DEFAULT_DEFINITIONS)).toBe(prepared.signingPayloadHex)
+    expect(encodeForSigningSponsor(attached.transaction, DEFAULT_DEFINITIONS)).toBe(prepared.signingPayloadHex)
+    expect(encodeForSigning(attached.transaction, DEFAULT_DEFINITIONS)).toBe(encodeForSigning(transaction, DEFAULT_DEFINITIONS))
     expect(adapter.decode(attached.signedBlob)).toEqual(attached.transaction)
     expect(decode(attached.signedBlob, DEFAULT_DEFINITIONS)).toEqual(attached.transaction)
     expect(attached.transactionHash).toBe(sha512Half(`54584E00${attached.signedBlob}`))

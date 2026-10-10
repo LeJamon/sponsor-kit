@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { formatDateTime, formatDropsAsXrp, shortenAddress } from '~/utils/format'
 
+const requestFetch = useRequestFetch()
+
 definePageMeta({ layout: 'dashboard' })
 const { data: context } = await useFetch('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data, status, error, refresh } = await useAsyncData('project-overview', () => projectId.value ? $fetch(`/api/console/projects/${projectId.value}/overview`) : Promise.resolve(null), { watch: [projectId] })
+const { data, status, error, refresh } = await useAsyncData('project-overview', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/overview`) : Promise.resolve(null), { watch: [projectId] })
 const { data: readiness, error: readinessError, refresh: refreshReadiness } = await useFetch<{ ready: boolean }>('/api/console/readiness')
 </script>
 

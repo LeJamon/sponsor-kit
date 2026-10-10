@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { formatDateTime, formatDropsAsXrp } from '~/utils/format'
 
+const requestFetch = useRequestFetch()
+
 definePageMeta({ layout: 'dashboard' })
 type FundingData = {
   sponsor: { address: string, signerKeyReference: string, observedBalanceDrops: string, ledgerIndex: number, reconciledAt: string }
@@ -11,7 +13,7 @@ type FundingData = {
 }
 const { data: context } = await useFetch('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data, status, error, refresh } = await useAsyncData<FundingData | null>('project-funding', () => projectId.value ? $fetch(`/api/console/projects/${projectId.value}/funding`) : Promise.resolve(null), { watch: [projectId] })
+const { data, status, error, refresh } = await useAsyncData<FundingData | null>('project-funding', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/funding`) : Promise.resolve(null), { watch: [projectId] })
 const copied = ref(false)
 const budgetOpen = ref(false)
 const budgetSaving = ref(false)

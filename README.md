@@ -54,9 +54,9 @@ local defaults, `DATABASE_URL` points to localhost, and `NODE_ENV` is not
 unique secret of at least 16 characters.
 
 Use `npm run db:generate` only after changing
-`server/database/schema.ts`; generating a migration does not apply it. During
-greenfield development, reset the disposable local volume and regenerate the
-baseline instead of accumulating compatibility migrations.
+`server/database/schema.ts`; generating a migration does not apply it. Preserve
+committed migrations and apply new migrations to existing environments. Take a
+backup before a schema change; never reset a hosted database to apply an update.
 
 There is no demo data path. The console reads PostgreSQL, network state comes from the configured XRPL endpoint, and submitted transactions are reconciled against validated ledgers.
 
@@ -101,8 +101,8 @@ Use the variables in `.env.example` to prepare the deployment environment.
 `BETTER_AUTH_SECRET` and `ACME_GRANT_SECRET` values plus a funded Devnet sponsor
 account. Never pass secrets as Docker build arguments.
 
-If you override `ACME_XRPL_RPC_URL`, also set `NUXT_XRPL_RPC_URL` to the same
-endpoint so the public network statistics use the runtime override too.
+`ACME_XRPL_RPC_URL` configures the API, worker, and public network statistics at
+runtime.
 
 For Northflank, build the root `Dockerfile`, expose HTTP port `3000`, and inject
 the variables as runtime secrets/settings. Keep one application instance with
@@ -136,7 +136,8 @@ npm run worker       # separately supervised outbox/reconciliation worker
 npm run smoke:devnet # opt-in real sponsored fee + reserve transfer smoke
 npm run lint         # ESLint
 npm run typecheck    # Nuxt/Vue TypeScript
-npm test             # domain and signer contract tests
+npm test             # domain, signer, transport, and integration-client tests
+npm run test:e2e     # browser payment flow (migrated and bootstrapped test DB required)
 npm run build        # production bundle
 npm run verify       # all checks above
 npm run db:setup     # start local PostgreSQL and apply migrations
@@ -146,6 +147,21 @@ npm run admin:bootstrap # create or promote the configured platform admin
 ```
 
 ## API preview
+
+For a guided browser demonstration, open **Try sponsorship** in the console.
+The disposable Devnet wallet signs in browser memory; its private key never
+reaches the API and cannot be recovered after a full page reload.
+
+For a runnable developer integration, follow the
+[Devnet payment example](examples/README.md). It prepares, signs, authorizes,
+and polls a real payment with a server-only API key:
+
+```bash
+npm run example:payment -- --confirm-devnet
+```
+
+See the [deployment runbook](docs/deployment.md) for Northflank provisioning,
+migrations, password-reset email configuration, health checks, and recovery.
 
 Create an API key in the developer console, then create a real sponsorship intent:
 
@@ -165,7 +181,7 @@ curl -X POST http://localhost:3000/api/v1/projects/$PROJECT_ID/intents \
   }'
 ```
 
-The response contains the complete canonical transaction and a short-lived, single-use grant. The wallet signs the transaction first without submitting it, then sends its hexadecimal signed blob and the grant to `POST /api/v1/intents/:intentId/authorize`. ACME persists the final sponsor-signed blob before asynchronous submission. Poll `GET /api/v1/intents/:intentId`; only `validated` means a successful validated XRPL outcome. A validated non-`tesSUCCESS` result is ledger-final but reported as `failed`.
+The response contains the complete canonical transaction and a short-lived grant that authorizes one exact signed transaction. An exact retry returns the existing submission. The wallet signs the transaction first without submitting it, then sends its hexadecimal signed blob and the grant to `POST /api/v1/intents/:intentId/authorize`. ACME persists the final sponsor-signed blob before asynchronous submission. Poll `GET /api/v1/intents/:intentId`; only `validated` means a successful validated XRPL outcome. A validated non-`tesSUCCESS` result is ledger-final but reported as `failed`.
 
 Every intent-creation request uses a server-side, scoped API key and an `Idempotency-Key`. Unrestricted API keys never belong in frontend code. Existing wallets use the authenticated reserve-migration console, which pins an inspection ledger and prepares one `SponsorshipTransfer` at a time.
 

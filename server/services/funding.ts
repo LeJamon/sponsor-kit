@@ -265,7 +265,7 @@ export async function readProjectFunding(input: { projectId: string, rpcUrl: str
   await database.insert(fundingBalances).values({ sponsorAccountId: binding.binding.id, treasuryId: sponsor.id }).onConflictDoNothing()
   const [balance, entries, budget] = await Promise.all([
     database.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, sponsor.id)).limit(1).then(rows => rows[0]),
-    database.select().from(fundingLedgerEntries).where(eq(fundingLedgerEntries.treasuryId, sponsor.id)).orderBy(desc(fundingLedgerEntries.createdAt)).limit(50),
+    database.select().from(fundingLedgerEntries).where(and(eq(fundingLedgerEntries.treasuryId, sponsor.id), eq(fundingLedgerEntries.sponsorAccountId, binding.binding.id))).orderBy(desc(fundingLedgerEntries.createdAt)).limit(50),
     database.select().from(projectFundingBudgets).where(eq(projectFundingBudgets.projectId, input.projectId)).limit(1).then(rows => rows[0])
   ])
   const availableDrops = observedBalanceDrops - currentReserveDrops - sponsor.safetyBufferDrops - (balance?.pendingFeeDrops || 0n) - (balance?.pendingReserveDrops || 0n)

@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { formatDateTime, formatDropsAsXrp } from '~/utils/format'
 
+const requestFetch = useRequestFetch()
+
 definePageMeta({ layout: 'dashboard' })
 type PolicyDocument = { allowedTransactionTypes: string[], maximumFeeDrops: string, maximumReserveDrops: string, maximumIntentsPerWalletPerDay: number, intentTtlSeconds: number }
 const { data: context } = await useFetch('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data: policies, status, error, refresh } = await useAsyncData('project-policies', () => projectId.value ? $fetch(`/api/console/projects/${projectId.value}/policies`) : Promise.resolve([]), { watch: [projectId] })
+const { data: policies, status, error, refresh } = await useAsyncData('project-policies', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/policies`) : Promise.resolve([]), { watch: [projectId] })
 const open = ref(false)
 const saving = ref(false)
 const mutationError = ref('')

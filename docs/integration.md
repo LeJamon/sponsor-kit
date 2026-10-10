@@ -1,5 +1,7 @@
 # ACME sponsorship integration
 
+For a complete runnable Devnet payment, start with [the integration example](../examples/README.md).
+
 This guide describes the HTTP API implemented by Sponsor Kit. It is the direct
 integration path for applications that do not use `xrpl-connect`. The planned
 `xrpl-connect` adapter will implement the same lifecycle and hide the transport
@@ -139,7 +141,7 @@ ACME returns `201 Created`:
   "state": "awaiting_user_signature",
   "network": "devnet",
   "networkId": 2,
-  "definitionsHash": "F3DCCAD7...F245B",
+  "definitionsHash": "1EA05B0F...E0FF5",
   "account": "rUser...",
   "transaction": {
     "TransactionType": "Payment",
@@ -359,9 +361,10 @@ sponsor signing.
 
 Common failures: malformed or mismatched blob (`400`), invalid/expired/consumed
 grant or policy rejection (`403`), stale intent/sequence/target or insufficient
-sponsor capacity (`409`), and global pause (`503`). Never retry an authorization
-with a consumed grant; read the intent first. Create a new intent when sequence or
-ledger deadline is stale.
+sponsor capacity (`409`), and global pause (`503`). An exact retry with the same grant and signed blob returns the existing accepted
+submission; a different blob is rejected. Read the intent after an uncertain
+response. Create a new intent only when the previous operation is known not to
+have been submitted and its sequence or ledger deadline is stale.
 
 ### `GET /api/v1/intents/:intentId`
 
@@ -400,6 +403,14 @@ for serialization.
 
 Call this during startup and after an incompatibility error. Fail closed if the
 capability response is unavailable; never guess Sponsor flags or field encodings.
+
+### `GET /api/v1/projects/:projectId/protocol`
+
+Returns the exact allowlisted XRPL definitions for wallet serialization, together
+with `network`, `networkId`, and `definitionsHash`. Requires a bearer API key with
+`intents:read`. Check that these values match the prepared intent before signing.
+A changed or unsupported protocol fails closed. The runnable example uses this
+endpoint with `XrplDefinitions` rather than relying on an outdated bundled codec.
 
 ### `POST /api/v1/projects/:projectId/reserve-inspections`
 

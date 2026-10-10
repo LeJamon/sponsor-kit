@@ -73,7 +73,7 @@ docker run --rm --env-file deployment.env \
   --import tsx scripts/bootstrap-admin.ts
 ```
 
-For a hosted database, provide all three bootstrap values in `deployment.env`:
+For a hosted database, provide the bootstrap values in `deployment.env`:
 `ACME_BOOTSTRAP_ADMIN_EMAIL`, `ACME_BOOTSTRAP_ADMIN_PASSWORD` (at least 16
 characters), and optional `ACME_BOOTSTRAP_ADMIN_NAME`. The bootstrap is
 idempotent: an existing account is promoted to administrator after its
@@ -84,9 +84,9 @@ the committed migrations repeatedly is safe and non-destructive.
 After the migration and bootstrap succeed, roll out the runtime image. Wait
 for `/api/v1/live` before routing traffic, then verify `/api/v1/health` and
 watch the worker heartbeat. Keep one embedded worker while using the local
-signer. When running several API replicas, set `ACME_EMBEDDED_WORKER=false`
-and supervise one or more separate `npm run worker` processes with the same
-database and XRPL settings.
+signer. When running several API replicas, set `ACME_EMBEDDED_WORKER=false` on those
+replicas and run the worker from the `tools` target with
+`node --import tsx scripts/worker.ts` and the same database and XRPL settings.
 
 ## Northflank runbook
 
@@ -116,6 +116,21 @@ is missing, not `running`, or older than 30 seconds. Monitor the
 `outbox_events` table for rows where `dead_lettered_at` is set, and alert on
 increasing `attempts`, stale locks, and non-null `last_error`. Dead-lettered
 submission events require an operator to inspect the XRPL result and intent
-before replaying or correcting them; do not delete those rows to clear an
-alert. Keep logs redacted and never log reset tokens, authorization headers,
+before recovery. The admin console lists failed jobs and offers an audited
+requeue with a reason and version check. Recovery retries the stored transaction
+bytes; it does not sign a replacement or release reserved funding. Do not delete
+those rows to clear an alert. Keep logs redacted and never log reset tokens, authorization headers,
 signing material, or provider secrets.
+
+## Dependency checks
+
+Run both `npm audit` and `npm audit --omit=dev` when updating dependencies.
+The production-only audit does not describe code bundled by Nuxt, so inspect
+the generated `.output` artifact as well. The MVP review found remaining
+upstream advisories in the build/development toolchain. The corresponding
+`simple-git`, `@simple-git/argv-parser`, `node-forge`, `js-yaml`, `braces`,
+`brace-expansion`, and `postcss-selector-parser` directories in the reviewed
+server artifact contained package metadata but no executable files, and the
+generated server chunks did not import them. No audit suppression or targeted
+package removal is used. Recheck this after framework or tooling updates;
+image scanners may still report the copied package metadata.

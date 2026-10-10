@@ -1,4 +1,5 @@
 <script setup lang="ts">
+const requestFetch = useRequestFetch()
 definePageMeta({ layout: 'admin' })
 
 type Overview = {
@@ -28,7 +29,7 @@ const {
   status: deadLetterStatus,
   error: deadLetterLoadError,
   refresh: refreshDeadLetters
-} = await useAsyncData<DeadLetterResponse>('admin-dead-letters', () => $fetch('/api/admin/outbox/dead-letters?limit=50'))
+} = await useAsyncData<DeadLetterResponse>('admin-dead-letters', () => requestFetch('/api/admin/outbox/dead-letters?limit=50'))
 const showControl = ref(false)
 const reason = ref('')
 const changingControl = ref(false)

@@ -1,5 +1,72 @@
 # ACME Sponsor Kit
 
+## Devnet MVP completion — 2026-10-10
+
+Scope: a self-service Devnet pilot with one clearly selected project per user,
+real wallet-first sponsored payments, resumable reserve migration, accurate
+shared sponsor accounting, and recoverable operations. Custodian/mainnet signing
+remains outside this Devnet release. No signing keys or API keys enter client
+logs or server requests from the demonstration wallet.
+
+- [x] Implement canonical shared treasury accounting, atomic project budgets/quotas, and safe authorization retries.
+- [x] Add failed-job visibility and safe reconciliation/recovery, with API/database regression tests.
+- [x] Build guided onboarding/readiness, a first-payment flow, and a browser-only disposable Devnet wallet.
+- [x] Add live transaction details, clear errors/empty states, visible network status, and resumable migration plans.
+- [x] Add password reset with a configured email transport and explicit unavailable behavior without one.
+- [x] Provide a runnable developer integration sample with server-only credentials and real signing/polling.
+- [x] Resolve dependency audit findings where supported, and verify remaining advisory applicability explicitly.
+- [x] Add repeatable migration/deployment tooling, liveness/readiness checks, and hosted operations documentation.
+- [x] Run lint, typecheck, unit/API/database tests, production/container builds, browser checks, and an authorized Devnet smoke where available.
+- [x] Record verified results and any external provisioning requirements.
+
+### Acceptance criteria
+
+A new tester can sign up, recover/retry onboarding, understand readiness, fund
+a disposable Devnet wallet, review/sign a sponsored payment, and observe its
+validated result. Reloading a transaction or migration restores its progress.
+Concurrent projects cannot independently spend the same sponsor capacity or
+exceed configured project budgets. Recovery preserves ledger finality and
+never releases uncertain commitments. Cross-tenant access and duplicate requests
+are covered by integration tests. Builds contain no local secrets.
+
+### Review
+
+Implemented the Devnet pilot flows and server-side integration example. The
+browser wallet keeps its private key in tab memory. Transaction detail reloads,
+exact authorization retries, tenant isolation, mobile layout, and onboarding
+recovery passed all three Chromium scenarios, including desktop and mobile
+screenshot review. Final verification passed lint, typecheck, all 38
+unit/API/database tests, and the production build on Nuxt 4.6.1. The final
+runtime and tools Docker images built successfully; runtime liveness, dependency
+health, sign-in, documentation, and authentication configuration returned HTTP 200.
+
+Live Devnet smoke validated a sponsored payment, account reserve migration,
+and reserve release:
+- Payment: `4EAA7E5965564BF7AE380D8420B9D8B940992E79E30A2DC5C9CF206124E04B39`
+- Migration: `57DF24248F99F96804A05171C1C46B662669183E38E24F5A911E33FC64E47CD9`
+- Cleanup: `D2E4FA79625D97289B7B128FFCE147FDFA66D893A841127C27714B58B1FD1A92`
+
+The runnable example independently validated payment
+`15970B4ED19E16AC39759CC5A08C43EF43D2A12D7C3F066557F5FEB7E870C988`.
+Current Devnet requires the role-specific sponsor signing prefix enabled by
+`fixCleanup3_4_0`; the signer and protocol gate now enforce that behavior. The
+reviewed definitions hash was updated only after the live smoke passed.
+
+Container checks passed with the nonroot runtime, no local environment files,
+HTTP 200 liveness/dependency health, running worker heartbeat, and repeated
+migrations/admin bootstrap through the separate tools image. The Better Auth
+upgrade includes an incremental nullable-issuer migration preserving old rows.
+
+The production dependency audit reports zero vulnerabilities. The full audit
+still reports upstream build/tool dependency advisories, documented in
+docs/deployment.md. Inspection of the final standalone output found only
+package metadata, with no executable files, for the affected package names;
+this does not remove the need to recheck tooling advisories after upgrades.
+
+Northflank provisioning, public hostname/secrets, database backups, and a
+verified email sender remain external configuration; no hosted service or
+real reset email was provisioned.
+
 ## Production Docker image — 2026-10-10
 
 - [x] Inspect the Nuxt build, runtime configuration, and embedded worker.

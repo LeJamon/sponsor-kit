@@ -2,6 +2,8 @@
 import { formatDateTime, formatDropsAsXrp, shortenAddress } from '~/utils/format'
 import { transactionExplorerUrl } from '~/utils/explorer'
 
+const requestFetch = useRequestFetch()
+
 definePageMeta({ layout: 'dashboard' })
 
 type IntentEvent = { id: string, version: number, fromState: string | null, toState: string, actor: string, createdAt: string }
@@ -31,7 +33,7 @@ const terminalStates = new Set(['validated', 'failed', 'rejected', 'expired', 'c
 const { data: context } = await useFetch<{ projects?: Array<{ project: { publicId: string } }> }>('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
 const { data: intent, status, error, refresh } = await useAsyncData<IntentDetail | null>(`intent-detail-${intentId.value}`, () => projectId.value && intentId.value
-  ? $fetch(`/api/console/projects/${projectId.value}/intents/${encodeURIComponent(intentId.value)}`)
+  ? requestFetch(`/api/console/projects/${projectId.value}/intents/${encodeURIComponent(intentId.value)}`)
   : Promise.resolve(null), { watch: [projectId] })
 
 const pollAttempt = ref(0)

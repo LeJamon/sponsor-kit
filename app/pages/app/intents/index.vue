@@ -2,12 +2,14 @@
 import { formatDateTime, formatDropsAsXrp, shortenAddress } from '~/utils/format'
 import { transactionExplorerUrl } from '~/utils/explorer'
 
+const requestFetch = useRequestFetch()
+
 definePageMeta({ layout: 'dashboard' })
 const search = ref('')
 const state = ref('all')
 const { data: context } = await useFetch('/api/console/context')
 const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data, status, error, refresh } = await useAsyncData('project-intents', () => projectId.value ? $fetch(`/api/console/projects/${projectId.value}/intents`, { query: { search: search.value || undefined, status: state.value === 'all' ? undefined : state.value } }) : Promise.resolve(null), { watch: [projectId, search, state] })
+const { data, status, error, refresh } = await useAsyncData('project-intents', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/intents`, { query: { search: search.value || undefined, status: state.value === 'all' ? undefined : state.value } }) : Promise.resolve(null), { watch: [projectId, search, state] })
 const displayItems = computed(() => data.value?.items.map(intent => ({ ...intent, explorerUrl: transactionExplorerUrl(intent.network, intent.transactionHash) })) || [])
 </script>
 
