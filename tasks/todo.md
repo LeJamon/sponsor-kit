@@ -1,5 +1,32 @@
 # ACME Sponsor Kit
 
+## Production Docker image — 2026-10-10
+
+- [x] Inspect the Nuxt build, runtime configuration, and embedded worker.
+- [x] Add a multi-stage Node image and exclude local secrets and generated files from the build context.
+- [x] Document container startup and Northflank runtime settings.
+- [x] Build the image and verify startup, runtime configuration, and image contents.
+
+### Review
+
+Added a multi-stage Node 24 Dockerfile, a .dockerignore that excludes local
+environment files and generated artifacts, and deployment instructions. The
+runtime runs as the node user with only Nuxt's standalone .output directory.
+The worker is disabled only during the build and remains enabled at runtime
+unless explicitly disabled. Documented separate migration/admin commands and
+the NUXT_XRPL_RPC_URL override needed by the public network statistics route.
+
+Built acme-sponsor-kit:docker-test successfully on Linux ARM64 (253.7 MiB).
+An isolated PostgreSQL 17 container loaded the committed baseline schema;
+the application container served /sign-in, /docs, and /api/auth/get-session,
+honored a runtime public URL and port override, and wrote a fresh running
+worker heartbeat. Confirmed the non-root user, runtime file contents, and
+absence of application/worker errors in logs. Removed all temporary containers,
+the PostgreSQL anonymous volume, and the test network. No hosted deployment or
+live XRPL transaction was performed. Dependency installation reported 64 audit
+findings across the existing full dependency set, including build dependencies;
+this change does not update dependencies.
+
 ## Custodian integration compatibility and design — 2026-09-16
 
 Agreed scope: each project selects platform-funded or customer-funded sponsorship.

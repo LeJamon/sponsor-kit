@@ -76,6 +76,58 @@ The signer loads `server_definitions`, verifies the Sponsor amendment by name an
 
 The embedded worker is convenient for a single Node deployment. Set `ACME_EMBEDDED_WORKER=false` and run `npm run worker` as a separately supervised process when the API is horizontally scaled.
 
+## Docker deployment
+
+Build the production image from the repository root:
+
+```bash
+docker build -t acme-sponsor-kit .
+```
+
+The multi-stage image builds with Node.js 24 and runs Nuxt's standalone Node
+server as a non-root user. Only `.output` is copied into the runtime image;
+local environment files are excluded from the build context. Supply database,
+authentication, and signer settings at runtime:
+
+```bash
+docker run --rm --name acme-sponsor-kit -p 3000:3000 \
+  --env-file /path/to/deployment.env acme-sponsor-kit
+```
+
+Use the variables in `.env.example` to prepare the deployment environment.
+`DATABASE_URL` must point to a database reachable from the container;
+`localhost` inside the container refers to the container itself. Set
+`NUXT_PUBLIC_APP_URL` to the public HTTPS URL when hosted, and provide unique
+`BETTER_AUTH_SECRET` and `ACME_GRANT_SECRET` values plus a funded Devnet sponsor
+account. Never pass secrets as Docker build arguments.
+
+If you override `ACME_XRPL_RPC_URL`, also set `NUXT_XRPL_RPC_URL` to the same
+endpoint so the public network statistics use the runtime override too.
+
+For Northflank, build the root `Dockerfile`, expose HTTP port `3000`, and inject
+the variables as runtime secrets/settings. Keep one application instance with
+`ACME_EMBEDDED_WORKER=true` so the API and transaction worker run together.
+`HOST` defaults to `0.0.0.0` and `PORT` to `3000`; both can be overridden at
+runtime. Northflank terminates HTTPS in front of the container.
+
+Apply migrations and bootstrap the administrator before starting the app,
+using a separate checkout or job with the development dependencies installed.
+With the target environment variables already set, these commands do not
+require a local `.env` file:
+
+```bash
+node ./node_modules/drizzle-kit/bin.cjs migrate
+node --import tsx scripts/bootstrap-admin.ts
+```
+
+The bootstrap requires `ACME_BOOTSTRAP_ADMIN_EMAIL` and
+`ACME_BOOTSTRAP_ADMIN_PASSWORD` (at least 16 characters) for a hosted database.
+The runtime image does not include migration tooling or automatically modify
+the database schema.
+After deployment, check `/api/v1/health` for database, signer, XRPL, and worker
+health. This endpoint checks external dependencies and should not be used as
+a container liveness probe.
+
 ## Commands
 
 ```bash
