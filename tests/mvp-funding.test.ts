@@ -1,16 +1,85 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { and, eq, sql } from 'drizzle-orm'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { auditLogs, fundingBalances, fundingLedgerEntries, organizationMemberships, organizations, outboxEvents, projectFundingBudgets, projectFundingQuotas, projectSponsorAccounts, projects, sponsorAccounts, sponsorTreasuries, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies, user } from '../server/database/schema'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { auditLogs, fundingBalances, fundingLedgerEntries, intentEvents, organizationMemberships, organizations, outboxEvents, platformControls, projectFundingBudgets, projectFundingQuotas, projectSponsorAccounts, projects, sponsorAccounts, sponsorTreasuries, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies, submissions, user } from '../server/database/schema'
+import { canonicalHash } from '../server/domain/canonical-json'
 import { FundingCapacityError, reserveFundingCapacity } from '../server/services/funding'
 import { resumeSponsorshipIntentSigning } from '../server/services/intent-creation'
+
+const routeMocks = vi.hoisted(() => ({
+  authGetSession: vi.fn(),
+  createSponsorSigner: vi.fn(),
+  inspectReserveTargets: vi.fn(),
+  loadSponsorProtocolDefinitions: vi.fn(),
+  parseDefinitionsHashAllowlist: vi.fn(),
+  requirePlatformAdmin: vi.fn(),
+  requireSameOrigin: vi.fn(),
+  useDatabase: vi.fn(),
+  verifySponseeLedgerAuthorization: vi.fn(),
+  xrplRpc: vi.fn()
+}))
+
+vi.mock('~~/lib/auth', () => ({ auth: { api: { getSession: routeMocks.authGetSession } } }))
+vi.mock('~~/server/database/schema', async () => vi.importActual('../server/database/schema'))
+vi.mock('~~/server/domain/canonical-json', async () => vi.importActual('../server/domain/canonical-json'))
+vi.mock('~~/server/domain/policy', async () => vi.importActual('../server/domain/policy'))
+vi.mock('~~/server/services/funding', async () => vi.importActual('../server/services/funding'))
+vi.mock('~~/server/services/reserve-inspection', () => ({ inspectReserveTargets: routeMocks.inspectReserveTargets }))
+vi.mock('~~/server/services/signer/factory', () => ({ createSponsorSigner: routeMocks.createSponsorSigner }))
+vi.mock('~~/server/services/xrpl/authorization', () => ({ verifySponseeLedgerAuthorization: routeMocks.verifySponseeLedgerAuthorization }))
+vi.mock('~~/server/services/xrpl/definitions', () => ({ loadSponsorProtocolDefinitions: routeMocks.loadSponsorProtocolDefinitions, parseDefinitionsHashAllowlist: routeMocks.parseDefinitionsHashAllowlist }))
+vi.mock('~~/server/utils/admin', () => ({ requirePlatformAdmin: routeMocks.requirePlatformAdmin }))
+vi.mock('~~/server/utils/database', () => ({ useDatabase: routeMocks.useDatabase }))
+vi.mock('~~/server/utils/same-origin', () => ({ requireSameOrigin: routeMocks.requireSameOrigin }))
+vi.mock('~~/server/utils/xrpl-rpc', () => ({ xrplRpc: routeMocks.xrplRpc }))
 
 const databaseUrl = process.env.MVP_FUNDING_TEST_DATABASE_URL
 const runDatabaseTests = Boolean(databaseUrl)
 const client = databaseUrl ? postgres(databaseUrl, { max: 8, prepare: false }) : undefined
 const database = client ? drizzle(client) : undefined
+
+type TestEvent = {
+  body?: unknown
+  headers?: Record<string, string>
+  params?: Record<string, string>
+  status?: number
+}
+
+type RouteHandler = (event: TestEvent) => Promise<unknown>
+
+function installRouteGlobals() {
+  vi.stubGlobal('defineEventHandler', (handler: unknown) => handler)
+  vi.stubGlobal('createError', (input: { statusCode: number, statusMessage: string, data?: unknown }) => Object.assign(new Error(input.statusMessage), input))
+  vi.stubGlobal('getHeader', (event: TestEvent, name: string) => event.headers?.[name.toLowerCase()])
+  vi.stubGlobal('getRouterParam', (event: TestEvent, name: string) => event.params?.[name])
+  vi.stubGlobal('readBody', (event: TestEvent) => event.body)
+  vi.stubGlobal('setResponseStatus', (event: TestEvent, status: number) => {
+    event.status = status
+  })
+}
+
+const testProtocol = {
+  amendmentId: 'test-amendment',
+  definitions: {},
+  definitionsHash: 'definitions',
+  flags: { sponsorFee: 1, sponsorReserve: 2 },
+  networkId: 2,
+  serverVersion: 'rippled-test',
+  transactionTypes: ['Payment']
+}
+
+const testPolicyDocument = {
+  allowedTransactionTypes: ['Payment'],
+  allowedDestinations: [],
+  allowedFields: [],
+  maximumFeeDrops: '1000',
+  maximumReserveDrops: '1000',
+  maximumIntentsPerWalletPerDay: 1000,
+  intentTtlSeconds: 300,
+  requireWalletProof: true
+}
 
 describe.skipIf(!runDatabaseTests)('MVP funding capacity integration', () => {
   const ids = {
@@ -25,6 +94,9 @@ describe.skipIf(!runDatabaseTests)('MVP funding capacity integration', () => {
 
   beforeAll(async () => {
     if (!database) return
+    installRouteGlobals()
+    routeMocks.useDatabase.mockReturnValue(database)
+    routeMocks.requireSameOrigin.mockImplementation(() => undefined)
     await database.insert(user).values({ id: ids.onboardingUser, name: 'Onboarding test', email: `onboarding-${ids.onboardingUser}@example.invalid` })
     await database.insert(organizations).values({ id: ids.organization, name: 'Funding test', slug: `funding-${ids.organization}` })
     await database.insert(projects).values([
@@ -96,22 +168,80 @@ describe.skipIf(!runDatabaseTests)('MVP funding capacity integration', () => {
 
   it('serializes physical treasury exhaustion across projects', async () => {
     if (!database) return
-    const physicalCapacityDrops = 100n
-    const reserveWithPhysicalCapacity = (projectId: string, sponsorAccountId: string, accountAddress: string) => database.transaction(async (tx) => {
-      const [balance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, ids.treasury)).for('update').limit(1)
-      if (!balance) throw new Error('Missing shared funding balance')
-      const pending = balance.pendingFeeDrops + balance.pendingReserveDrops
-      if (pending + 60n > physicalCapacityDrops) throw new Error('PHYSICAL_TREASURY_EXHAUSTED')
-      return reserveFundingCapacity(tx, { sponsorAccountId, treasuryId: ids.treasury, projectId, accountAddress, feeDrops: 60n, reserveDrops: 0n, now: new Date('2026-01-01T00:00:00.000Z') })
+    const intentIds = [randomUUID(), randomUUID()]
+    const policyIds = [randomUUID(), randomUUID()]
+    const blobs = [`AA${intentIds[0].replaceAll('-', '')}`, `BB${intentIds[1].replaceAll('-', '')}`]
+    const grants = blobs.map(blob => `grant_${blob}_${randomUUID()}`)
+    const transactions = new Map<string, Record<string, unknown>>()
+    const now = new Date(Date.now() + 60_000)
+    const intentRows = [ids.projectA, ids.projectB].map((projectId, index) => {
+      const accountAddress = `rWalletPhysical${index}`
+      const transaction = { TransactionType: 'Payment', Account: accountAddress, Destination: 'rDestinationPhysical', Amount: '1', Fee: '60', Sequence: 1, LastLedgerSequence: 100 }
+      transactions.set(blobs[index], transaction)
+      return {
+        id: intentIds[index],
+        projectId,
+        sponsorAccountId: index === 0 ? ids.accountA : ids.accountB,
+        policyId: policyIds[index],
+        accountAddress,
+        network: 'devnet' as const,
+        networkId: 2,
+        definitionsHash: 'definitions',
+        mode: 'fee',
+        canonicalTransaction: transaction,
+        canonicalHash: canonicalHash(transaction),
+        preparedLedgerIndex: 1,
+        requestHash: `request-${intentIds[index]}`,
+        policySnapshot: testPolicyDocument,
+        estimatedFeeDrops: 60n,
+        estimatedReserveDrops: 0n,
+        idempotencyKey: `authorize-${intentIds[index]}`,
+        correlationId: `correlation-${intentIds[index]}`,
+        state: 'awaiting_user_signature' as const,
+        expiresAt: now
+      }
     })
-    const attempts = await Promise.allSettled([
-      reserveWithPhysicalCapacity(ids.projectA, ids.accountA, 'rWalletPhysicalA'),
-      reserveWithPhysicalCapacity(ids.projectB, ids.accountB, 'rWalletPhysicalB')
-    ])
-    expect(attempts.filter(result => result.status === 'fulfilled')).toHaveLength(1)
-    expect(attempts.filter(result => result.status === 'rejected' && result.reason instanceof Error && result.reason.message === 'PHYSICAL_TREASURY_EXHAUSTED')).toHaveLength(1)
-    const [balance] = await database.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, ids.treasury)).limit(1)
-    expect(balance?.pendingFeeDrops).toBe(60n)
+    routeMocks.xrplRpc.mockImplementation(async (_rpcUrl: string, method: string) => {
+      if (method === 'server_info') return { info: { validated_ledger: { seq: 1 } } }
+      if (method === 'server_state') return { state: { validated_ledger: { reserve_base: '0', reserve_inc: '0' } } }
+      if (method === 'account_info') return { account_data: { Balance: '100', Sequence: 1, OwnerCount: 0 }, ledger_index: 1 }
+      throw new Error(`Unexpected RPC method ${method}`)
+    })
+    routeMocks.createSponsorSigner.mockImplementation(async () => ({
+      adapter: { decode: (blob: string) => transactions.get(blob) },
+      protocol: { definitions: {} },
+      signer: { signTransaction: async ({ intentId }: { intentId: string }) => ({ signedBlob: `sponsor-${intentId}`, txHash: `tx-${intentId}`, signingHash: `signing-${intentId}`, keyReference: 'test' }) }
+    }))
+    routeMocks.inspectReserveTargets.mockResolvedValue({ targets: [] })
+    routeMocks.verifySponseeLedgerAuthorization.mockResolvedValue(undefined)
+    const [previousControl] = await database.select().from(platformControls).where(eq(platformControls.key, 'sponsorship')).limit(1)
+    try {
+      await database.insert(platformControls).values({ key: 'sponsorship', paused: false, updatedBy: ids.onboardingUser }).onConflictDoUpdate({ target: platformControls.key, set: { paused: false, updatedBy: ids.onboardingUser } })
+      await database.insert(sponsorshipPolicies).values(policyIds.map((id, index) => ({ id, projectId: index === 0 ? ids.projectA : ids.projectB, name: `Physical ${id}`, version: 1, status: 'active' as const, document: testPolicyDocument, documentHash: `policy-${id}` })))
+      await database.insert(sponsorshipIntents).values(intentRows)
+      await database.insert(sponsorshipGrants).values(intentRows.map((intent, index) => ({ projectId: intent.projectId, intentId: intent.id, tokenHash: createHash('sha256').update(grants[index]).digest('hex'), audience: 'xrpl-connect', accountAddress: intent.accountAddress, canonicalHash: intent.canonicalHash, expiresAt: now })))
+      const authorize = (await import('../server/api/v1/intents/[intentId]/authorize.post')).default as RouteHandler
+      const attempts = await Promise.allSettled(intentRows.map((intent, index) => authorize({ params: { intentId: intent.id }, body: { grant: grants[index], signedTransaction: blobs[index] } })))
+      expect(attempts.filter(result => result.status === 'fulfilled')).toHaveLength(1)
+      const rejected = attempts.find(result => result.status === 'rejected') as PromiseRejectedResult | undefined
+      expect(rejected?.reason).toMatchObject({ statusCode: 409, statusMessage: 'Sponsor capacity is insufficient' })
+      const [balance] = await database.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, ids.treasury)).limit(1)
+      expect(balance?.pendingFeeDrops).toBe(60n)
+    } finally {
+      await database.delete(intentEvents).where(inArray(intentEvents.intentId, intentIds))
+      await database.delete(submissions).where(inArray(submissions.intentId, intentIds))
+      await database.delete(fundingLedgerEntries).where(inArray(fundingLedgerEntries.intentId, intentIds))
+      await database.delete(sponsorshipGrants).where(inArray(sponsorshipGrants.intentId, intentIds))
+      await database.delete(outboxEvents).where(inArray(outboxEvents.aggregateId, intentIds))
+      await database.delete(sponsorshipIntents).where(inArray(sponsorshipIntents.id, intentIds))
+      await database.delete(sponsorshipPolicies).where(inArray(sponsorshipPolicies.id, policyIds))
+      if (previousControl) {
+        await database.update(platformControls).set({ paused: previousControl.paused, version: previousControl.version, reason: previousControl.reason, updatedBy: previousControl.updatedBy, updatedAt: previousControl.updatedAt }).where(eq(platformControls.key, 'sponsorship'))
+      } else {
+        await database.delete(platformControls).where(eq(platformControls.key, 'sponsorship'))
+      }
+      await database.update(fundingBalances).set({ pendingFeeDrops: 0n, pendingReserveDrops: 0n }).where(eq(fundingBalances.treasuryId, ids.treasury))
+    }
   })
 
   it('rejects a funding operation that crosses the project sponsor binding', async () => {
@@ -132,26 +262,57 @@ describe.skipIf(!runDatabaseTests)('MVP funding capacity integration', () => {
 
   it('serializes first-project onboarding retries with a per-user advisory lock', async () => {
     if (!database) return
-    const onboarding = async (organizationName: string) => database.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`onboarding:${ids.onboardingUser}`}))`)
-      const [existing] = await tx.select({ organization: organizations, project: projects }).from(organizationMemberships)
-        .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
-        .innerJoin(projects, eq(projects.organizationId, organizations.id))
-        .where(eq(organizationMemberships.userId, ids.onboardingUser)).limit(1)
-      if (existing) return existing
-      const organizationId = randomUUID()
-      const [organization] = await tx.insert(organizations).values({ id: organizationId, name: organizationName, slug: `onboarding-${organizationId}` }).returning()
-      if (!organization) throw new Error('Organization creation failed')
-      await tx.insert(organizationMemberships).values({ organizationId, userId: ids.onboardingUser, role: 'owner' })
-      const [project] = await tx.insert(projects).values({ organizationId, name: 'My first project', publicId: `onboarding-${organizationId}`, network: 'devnet', rpcUrl: 'http://test.invalid' }).returning()
-      if (!project) throw new Error('Project creation failed')
-      return { organization, project }
+    const originalRpcUrl = process.env.ACME_XRPL_RPC_URL
+    const originalSponsorAddress = process.env.ACME_LOCAL_SPONSOR_ADDRESS
+    const sponsorAddress = `rOnboard${ids.onboardingUser.replaceAll('-', '').slice(0, 25)}`
+    process.env.ACME_XRPL_RPC_URL = 'http://test.invalid'
+    process.env.ACME_LOCAL_SPONSOR_ADDRESS = sponsorAddress
+    routeMocks.authGetSession.mockResolvedValue({ user: { id: ids.onboardingUser, email: `onboarding-${ids.onboardingUser}@example.invalid`, role: 'user' } })
+    routeMocks.loadSponsorProtocolDefinitions.mockResolvedValue(testProtocol)
+    routeMocks.parseDefinitionsHashAllowlist.mockReturnValue(undefined)
+    routeMocks.xrplRpc.mockImplementation(async (_rpcUrl: string, method: string) => {
+      if (method === 'account_info') return { account_data: { Balance: '1000000000' }, ledger_index: 1 }
+      if (method === 'server_state') return { state: { validated_ledger: { base_fee: '10', reserve_base: '10000000', reserve_inc: '2000000', seq: 1 } } }
+      throw new Error(`Unexpected RPC method ${method}`)
     })
-    const results = await Promise.all([onboarding('Onboarding A'), onboarding('Onboarding B')])
-    expect(results[0].project.id).toBe(results[1].project.id)
-    const rows = await database.select({ organizationId: organizationMemberships.organizationId }).from(organizationMemberships).where(eq(organizationMemberships.userId, ids.onboardingUser))
-    expect(rows).toHaveLength(1)
-    await database.delete(organizations).where(eq(organizations.id, rows[0].organizationId))
+    let organizationId: string | undefined
+    try {
+      const onboarding = (await import('../server/api/onboarding.post')).default as RouteHandler
+      const results = await Promise.all([
+        onboarding({ body: { organizationName: 'Onboarding A' }, headers: { origin: 'http://localhost:3000' } }),
+        onboarding({ body: { organizationName: 'Onboarding B' }, headers: { origin: 'http://localhost:3000' } })
+      ]) as Array<{ project: { id: string } }>
+      expect(results[0].project.id).toBe(results[1].project.id)
+      const [membership] = await database.select({ organizationId: organizationMemberships.organizationId }).from(organizationMemberships).where(eq(organizationMemberships.userId, ids.onboardingUser))
+      expect(membership).toBeDefined()
+      organizationId = membership?.organizationId
+      const [projectBudget] = await database.select().from(projectFundingBudgets).where(eq(projectFundingBudgets.projectId, results[0].project.id)).limit(1)
+      expect(projectBudget?.feeBudgetDrops).toBe(1_000_000n)
+      expect(projectBudget?.reserveBudgetDrops).toBe(100_000_000n)
+    } finally {
+      if (!organizationId) {
+        const [membership] = await database.select({ organizationId: organizationMemberships.organizationId }).from(organizationMemberships).where(eq(organizationMemberships.userId, ids.onboardingUser)).limit(1)
+        organizationId = membership?.organizationId
+      }
+      if (organizationId) {
+        const onboardingProjects = await database.select({ id: projects.id }).from(projects).where(eq(projects.organizationId, organizationId))
+        const onboardingSponsorAccounts = onboardingProjects.length
+          ? await database.select({ id: sponsorAccounts.id }).from(sponsorAccounts).where(inArray(sponsorAccounts.projectId, onboardingProjects.map(project => project.id)))
+          : []
+        if (onboardingSponsorAccounts.length) {
+          const sponsorAccountIds = onboardingSponsorAccounts.map(sponsor => sponsor.id)
+          await database.delete(fundingBalances).where(inArray(fundingBalances.sponsorAccountId, sponsorAccountIds))
+          await database.delete(projectSponsorAccounts).where(inArray(projectSponsorAccounts.sponsorAccountId, sponsorAccountIds))
+          await database.delete(sponsorAccounts).where(inArray(sponsorAccounts.id, sponsorAccountIds))
+        }
+        await database.delete(organizations).where(eq(organizations.id, organizationId))
+        await database.delete(sponsorTreasuries).where(and(eq(sponsorTreasuries.network, 'devnet'), eq(sponsorTreasuries.address, sponsorAddress)))
+      }
+      if (originalRpcUrl === undefined) delete process.env.ACME_XRPL_RPC_URL
+      else process.env.ACME_XRPL_RPC_URL = originalRpcUrl
+      if (originalSponsorAddress === undefined) delete process.env.ACME_LOCAL_SPONSOR_ADDRESS
+      else process.env.ACME_LOCAL_SPONSOR_ADDRESS = originalSponsorAddress
+    }
   })
 
   it('reconstructs an exact unconsumed grant and rejects altered grant data', async () => {
@@ -198,24 +359,24 @@ describe.skipIf(!runDatabaseTests)('MVP funding capacity integration', () => {
     const [beforeBalance] = await database.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, ids.treasury)).limit(1)
     const beforeLedger = await database.select().from(fundingLedgerEntries).where(eq(fundingLedgerEntries.idempotencyKey, idempotencyKey))
     const reason = 'operator verified persisted signed payload'
+    routeMocks.requirePlatformAdmin.mockResolvedValue({ user: { email: 'admin@example.invalid', role: 'admin' } })
     try {
-      await database.transaction(async (tx) => {
-        const [current] = await tx.select().from(outboxEvents).where(eq(outboxEvents.id, eventId)).for('update').limit(1)
-        if (!current?.deadLetteredAt || current.processedAt) throw new Error('Outbox event is not currently dead-lettered')
-        const [recovered] = await tx.update(outboxEvents).set({ deadLetteredAt: null, availableAt: new Date(), lockedAt: null, lockedBy: null, lockVersion: current.lockVersion + 1, lastError: `Manually requeued: ${reason}` }).where(and(eq(outboxEvents.id, eventId), sql`processed_at is null`, eq(outboxEvents.lockVersion, current.lockVersion))).returning()
-        if (!recovered) throw new Error('Dead-letter event changed')
-        await tx.insert(auditLogs).values({ actor: 'test-admin', action: 'outbox.dead_letter.recovered', resourceType: 'outbox_event', resourceId: eventId, result: 'success', requestId: `request-${eventId}`, metadata: { reason } })
-      })
+      const recover = (await import('../server/api/admin/outbox/dead-letters/[eventId]/recover.post')).default as RouteHandler
+      const recovered = await recover({ params: { eventId }, body: { expectedLockVersion: 7, reason }, headers: { 'origin': 'http://localhost:3000', 'x-request-id': `request-${eventId}` } }) as typeof outboxEvents.$inferSelect
       const [afterEvent] = await database.select().from(outboxEvents).where(eq(outboxEvents.id, eventId)).limit(1)
       const [afterBalance] = await database.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, ids.treasury)).limit(1)
       const afterLedger = await database.select().from(fundingLedgerEntries).where(eq(fundingLedgerEntries.idempotencyKey, idempotencyKey))
+      expect(recovered.id).toBe(eventId)
       expect(afterEvent?.payload).toEqual(payload)
       expect(afterEvent?.deadLetteredAt).toBeNull()
       expect(afterEvent?.lockVersion).toBe(8)
       expect(afterEvent?.attempts).toBe(12)
+      expect(afterEvent?.lastError).toBe(`Manually requeued: ${reason}`)
       expect(afterBalance?.pendingFeeDrops).toBe(beforeBalance?.pendingFeeDrops)
       expect(afterBalance?.capturedFeeDrops).toBe(beforeBalance?.capturedFeeDrops)
       expect(afterLedger).toEqual(beforeLedger)
+      const [audit] = await database.select().from(auditLogs).where(and(eq(auditLogs.resourceId, eventId), eq(auditLogs.action, 'outbox.dead_letter.recovered'))).limit(1)
+      expect(audit?.actor).toBe('admin@example.invalid')
     } finally {
       await database.delete(auditLogs).where(eq(auditLogs.resourceId, eventId))
       await database.delete(outboxEvents).where(eq(outboxEvents.id, eventId))
