@@ -43,6 +43,7 @@ const signingPayload = ref('')
 const destination = ref('')
 const amountDrops = ref('1')
 const idempotencyKey = ref('')
+const intentRequestSnapshot = ref<{ destination: string, amountDrops: string } | null>(null)
 const busy = ref(false)
 const errorMessage = ref('')
 const destinationError = ref('')
@@ -112,6 +113,7 @@ function signingValidationError() {
   const transaction = intent.value.transaction
   if (intent.value.account !== wallet.value.address || transaction.Account !== wallet.value.address) return 'The approved account does not match this disposable wallet.'
   if (transaction.TransactionType !== 'Payment' || typeof transaction.Destination !== 'string' || !isValidAddress(transaction.Destination) || !isValidDrops(String(transaction.Amount ?? ''))) return 'The approved transaction is not a valid Devnet Payment.'
+  if (transaction.Destination !== destination.value.trim() || String(transaction.Amount) !== amountDrops.value.trim()) return 'The approved Payment changed after it was requested. Start over and review the new details before signing.'
   if (typeof transaction.Sponsor !== 'string' || !isValidAddress(transaction.Sponsor)) return 'The approved transaction is missing a valid sponsor account.'
   if (!Number.isInteger(Number(transaction.SponsorFlags)) || Number(transaction.SponsorFlags) <= 0) return 'The approved transaction has invalid sponsorship flags.'
   const managedNumbers = ['Fee', 'Sequence', 'LastLedgerSequence'].map(field => String(transaction[field] ?? ''))
@@ -149,6 +151,7 @@ async function createWallet() {
   signedBlob.value = ''
   signingPayload.value = ''
   idempotencyKey.value = ''
+  intentRequestSnapshot.value = null
   authorizationOutcomeUnknown.value = false
   errorMessage.value = ''
   stage.value = 'funding'
@@ -237,9 +240,18 @@ async function createIntent() {
     destinationError.value = 'Enter an amount in drops between 1 and 1,000,000,000.'
     return
   }
+  const requestedDestination = destination.value.trim()
+  const requestedAmount = amountDrops.value.trim()
+  if (idempotencyKey.value && intentRequestSnapshot.value && (intentRequestSnapshot.value.destination !== requestedDestination || intentRequestSnapshot.value.amountDrops !== requestedAmount)) {
+    errorMessage.value = 'This request may already be in progress. Start over before changing payment details so an uncertain retry cannot create a duplicate.'
+    return
+  }
   busy.value = true
   try {
-    if (!idempotencyKey.value) idempotencyKey.value = globalThis.crypto.randomUUID()
+    if (!idempotencyKey.value) {
+      idempotencyKey.value = globalThis.crypto.randomUUID()
+      intentRequestSnapshot.value = { destination: requestedDestination, amountDrops: requestedAmount }
+    }
     const result = await $fetch<Intent>(`/api/console/projects/${projectId.value}/intents`, {
       method: 'POST',
       headers: { 'Idempotency-Key': idempotencyKey.value },
@@ -247,8 +259,8 @@ async function createIntent() {
         account: wallet.value.address,
         transaction: {
           TransactionType: 'Payment',
-          Destination: destination.value.trim(),
-          Amount: amountDrops.value.trim()
+          Destination: requestedDestination,
+          Amount: requestedAmount
         },
         sponsorship: { fee: true, reserve: false },
         signing: { mode: 'single', signerCount: 1 }
@@ -265,12 +277,6 @@ async function createIntent() {
     busy.value = false
   }
 }
-
-watch([destination, amountDrops], () => {
-  // Keep the same key for uncertain retries, but require a fresh key when the
-  // user changes the request body after an unsuccessful attempt.
-  if (stage.value === 'details' && idempotencyKey.value) idempotencyKey.value = ''
-})
 
 async function signIntent() {
   if (!intent.value || !protocol.value) return
@@ -372,6 +378,7 @@ function startOver() {
   signedBlob.value = ''
   signingPayload.value = ''
   idempotencyKey.value = ''
+  intentRequestSnapshot.value = null
   authorizationOutcomeUnknown.value = false
   errorMessage.value = ''
   stage.value = fundResult.value?.funded ? 'details' : 'funding'
@@ -389,6 +396,7 @@ function resetWallet() {
   signedBlob.value = ''
   signingPayload.value = ''
   idempotencyKey.value = ''
+  intentRequestSnapshot.value = null
   authorizationOutcomeUnknown.value = false
   errorMessage.value = ''
   fundError.value = ''
@@ -686,6 +694,13 @@ onBeforeUnmount(() => {
             color="neutral"
             variant="ghost"
             @click="resetWallet"
+          />
+          <UButton
+            v-if="idempotencyKey"
+            label="Start over"
+            color="neutral"
+            variant="ghost"
+            @click="startOver"
           />
         </div>
       </form>
