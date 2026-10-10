@@ -1,5 +1,10 @@
 # Architecture
 
+The proposed organization custody and project funding model is documented in
+[Custodian integration design](custodian-integration.md), including provider
+compatibility evidence and the remaining live-verification gates. That design
+does not describe an already-deployed integration.
+
 ## Trust boundaries
 
 ```text

@@ -1,5 +1,107 @@
 # ACME Sponsor Kit
 
+## Custodian integration compatibility and design — 2026-09-16
+
+Agreed scope: each project selects platform-funded or customer-funded sponsorship.
+Connections belong to organizations and have a principal account. Customers
+configure their connections in the dashboard. Providers are Palisade, Ripple
+Custody, and AWS KMS. Automatic signing and custodian-side manual approval must
+be modeled; the local seed remains a development/test option.
+
+- [x] Verify the published SimpleXRPL package and exact provider signing interfaces.
+- [x] Prove compatible sponsor signing locally where possible; distinguish this from live provider verification.
+- [x] Specify organization connections, project routing, and shared treasury accounting.
+- [x] Specify durable provider approvals, retries, cancellation, expiry, and credential handling.
+- [x] Record implementation sequencing, acceptance tests, and concrete external prerequisites.
+
+### Review
+
+Added docs/custodian-integration.md and a reproducible offline SDK probe exposed
+through npm run check:custody-signing. Inspected published simplexrpl 0.2.0
+(gitHead e90c9ccf425f6abefbc49270bd9c40a9d69115c3) and official provider documentation.
+The SDK was installed only in an isolated temporary directory; application
+dependencies, database, and runtime signing routes were not changed.
+
+Seven offline checks passed using the actual public AwsKmsSigner adapter and an
+injected local KMS fixture. The checks cover single ed25519/secp256k1 and multisigned
+user envelopes, low/high-S provider signatures, exact payload preservation, and
+why the high-level ExternalSigner.sign method is unsuitable for sponsor signing.
+Palisade and Ripple Custody expose suitable lower-level signing APIs in published
+source, but their exact sponsor payload acceptance and recovery behavior remain
+unverified against real services. AWS KMS has no native custodian approval inbox.
+
+The design specifies per-project funding, organization principal connections,
+canonical treasury balances, separate project budgets, durable signing jobs,
+manual-approval expiry, immutable provider identities, safe retries, and dashboard
+setup. Live validation requires an identified sandbox/test key, its credentials
+through a secure configuration channel, and a compatible Sponsor-enabled network.
+The user confirmed that none is configured yet. Independent review found no
+blocking issue in the design/probe; tenant IDs were made explicit on proposed
+signing requests for auditable worker routing.
+
+Verification passed: seven offline compatibility checks and npm run verify
+(lint, typecheck, 14 unit tests, production build). Existing task-log edits were
+preserved. Production custody integration is not represented as implemented.
+
+## SimpleXRPL custody discovery — 2026-09-16
+
+- [x] Trace funding, onboarding, and the existing sponsor account model.
+- [x] Trace sponsor signing, submission, and custodian approval constraints.
+- [x] Compare the implementation with SimpleXRPL's documented connectors.
+- [x] Record findings and prepare the product questions needed before implementation.
+
+### Review
+
+Discovery only; no application implementation changes requested. Current onboarding
+creates project-specific records for the same configured local Devnet address;
+the funding page displays balances but has no custodian connection workflow.
+The duplicated address has independent per-project pending balances and locks,
+so a shared production treasury requires account-wide capacity accounting to
+avoid overcommitment and double-counted balance reporting.
+SponsorSigner is the existing integration boundary, but the factory only constructs
+the local signer. Authorization awaits signing inside a database transaction, and
+transactions expire after 20 ledgers from preparation.
+
+Reviewed Ripple's SimpleXRPL connector documentation and its linked source at
+95b977b15f8950c5bc076b25165217869c0b06d3. Ripple Custody and Palisade connectors
+support account discovery and transaction operations; the reviewed signing paths
+set the main SigningPubKey/TxnSignature, whereas this application must preserve
+the user's signature and attach SponsorSignature. Compatibility needs a focused
+custodian-backed proof before adopting the SDK for sponsor signing. Native SDK
+submission and long-running approval flows also differ from the existing durable
+signed-blob outbox contract.
+
+Questions cover customer-held versus deposited XRP, initial custody providers,
+shared versus dedicated capital accounts, delegated signing credentials,
+automatic versus manual approvals, and available sandbox/network support.
+The existing unit suite passed: 4 files, 14 tests. This does not validate a real
+custodian integration. Existing task-log changes were preserved.
+
+## Stop local app — 2026-09-15
+
+- [x] Stop the development server and remove the PostgreSQL container and Compose network.
+- [x] Verify port 3000 is free and preserve the database volume.
+
+### Review
+
+The local app is stopped. Compose has no running services, port 3000 is free,
+and `sponsor-kit_acme-postgres` remains available for the next launch.
+
+## Launch app locally — 2026-09-15
+
+- [x] Check startup instructions, dependencies, and existing services.
+- [x] Start PostgreSQL, apply migrations, and launch the development server.
+- [x] Verify the homepage responds and record the local URL.
+
+### Review
+
+PostgreSQL is healthy, migrations applied, and the local administrator was
+created. The development server is running at `http://localhost:3000/`.
+The homepage and authentication session endpoint both returned HTTP 200;
+the homepage contains the application content and live network fee/reserve values.
+File watching failed inside the sandbox even with a higher file-descriptor
+limit and polling; the server started successfully outside the sandbox.
+
 ## Supplied hero asset and NFT example
 
 - [x] Replace the derived WebP treatment with the supplied `boat.png` asset.

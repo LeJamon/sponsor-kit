@@ -11,6 +11,7 @@
     "admin:bootstrap": "tsx --env-file=.env scripts/bootstrap-admin.ts",
     "worker": "tsx --env-file=.env scripts/worker.ts",
     "smoke:devnet": "tsx --env-file=.env scripts/devnet-smoke.ts",
+    "check:custody-signing": "node --import tsx scripts/check-custody-signing.mjs",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
