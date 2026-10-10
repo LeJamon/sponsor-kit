@@ -32,6 +32,12 @@ export default defineNuxtConfig({
     '/api/**': { cors: false }
   },
 
+  experimental: {
+    // Nuxt 4.6's generated route fetch types avoid excessive recursion in
+    // large API surfaces while retaining typed $fetch for known routes.
+    routeTypedFetch: true
+  },
+
   compatibilityDate: '2026-08-18',
 
   nitro: {
