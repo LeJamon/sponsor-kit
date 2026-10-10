@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { H3Event } from 'h3'
 import { and, eq, gt, isNull, or } from 'drizzle-orm'
-import { apiKeys, projects, sponsorshipIntents } from '../database/schema'
+import { apiKeys, organizations, projects, sponsorshipIntents } from '../database/schema'
 import { useDatabase } from './database'
 
 export function hashApiKey(secret: string): string {
@@ -20,17 +20,19 @@ export function readBearerToken(event: H3Event): string {
   return header.slice(7)
 }
 
-export async function requireProjectApiKey(event: H3Event, projectPublicId: string, requiredScope: string) {
+export async function requireProjectApiKey(event: H3Event, projectPublicId: string, requiredScope: string, options: { requireActiveProject?: boolean } = {}) {
   const token = readBearerToken(event)
   const secretHash = hashApiKey(token)
+  const projectStatus = options.requireActiveProject === false ? undefined : eq(projects.status, 'active')
   const rows = await useDatabase().select({
     apiKeyId: apiKeys.id,
     scopes: apiKeys.scopes,
     project: projects
-  }).from(apiKeys).innerJoin(projects, eq(apiKeys.projectId, projects.id)).where(and(
+  }).from(apiKeys).innerJoin(projects, eq(apiKeys.projectId, projects.id)).innerJoin(organizations, eq(organizations.id, projects.organizationId)).where(and(
     eq(apiKeys.secretHash, secretHash),
     eq(projects.publicId, projectPublicId),
-    eq(projects.status, 'active'),
+    projectStatus,
+    eq(organizations.status, 'active'),
     isNull(apiKeys.revokedAt),
     or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date()))
   )).limit(1)
@@ -49,11 +51,12 @@ export async function requireIntentApiKey(event: H3Event, intentId: string, requ
     project: projects
   }).from(apiKeys)
     .innerJoin(projects, eq(apiKeys.projectId, projects.id))
+    .innerJoin(organizations, eq(organizations.id, projects.organizationId))
     .innerJoin(sponsorshipIntents, eq(sponsorshipIntents.projectId, projects.id))
     .where(and(
       eq(sponsorshipIntents.id, intentId),
       eq(apiKeys.secretHash, secretHash),
-      eq(projects.status, 'active'),
+      eq(organizations.status, 'active'),
       isNull(apiKeys.revokedAt),
       or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date()))
     )).limit(1)

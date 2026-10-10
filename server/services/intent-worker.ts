@@ -4,6 +4,7 @@ import {
   fundingBalances,
   fundingLedgerEntries,
   intentEvents,
+  organizations,
   outboxEvents,
   platformControls,
   projects,
@@ -11,6 +12,7 @@ import {
   reserveMigrationPlans,
   reserveObligations,
   sponsorAccounts,
+  sponsorTreasuries,
   sponsorshipIntents,
   submissions,
   usageEvents,
@@ -18,6 +20,7 @@ import {
 } from '../database/schema'
 import { loadSponsorProtocolDefinitions } from './xrpl/definitions'
 import { inspectReserveTargets } from './reserve-inspection'
+import { captureFunding, releaseFundingReservation, releaseReserveExposure } from './funding'
 import { useDatabase } from '../utils/database'
 import { XrplRpcError, xrplRpc } from '../utils/xrpl-rpc'
 
@@ -95,16 +98,21 @@ async function eventVersion(tx: Parameters<Parameters<ReturnType<typeof useDatab
 }
 
 async function releaseReservation(tx: Parameters<Parameters<ReturnType<typeof useDatabase>['transaction']>[0]>[0], intent: Intent, sponsorAccountId: string, reason: string) {
-  const [balance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.sponsorAccountId, sponsorAccountId)).for('update').limit(1)
-  if (!balance) return
-  await tx.update(fundingBalances).set({
-    pendingFeeDrops: balance.pendingFeeDrops > intent.estimatedFeeDrops ? balance.pendingFeeDrops - intent.estimatedFeeDrops : 0n,
-    pendingReserveDrops: balance.pendingReserveDrops > intent.estimatedReserveDrops ? balance.pendingReserveDrops - intent.estimatedReserveDrops : 0n,
-    version: balance.version + 1,
-    updatedAt: new Date()
-  }).where(eq(fundingBalances.sponsorAccountId, sponsorAccountId))
+  const [sponsor] = await tx.select().from(sponsorAccounts).where(eq(sponsorAccounts.id, sponsorAccountId)).limit(1)
+  if (!sponsor) throw new Error('Sponsor account binding is unavailable')
+  await releaseFundingReservation(tx, {
+    sponsorAccountId,
+    treasuryId: sponsor.treasuryId,
+    projectId: intent.projectId,
+    accountAddress: intent.accountAddress,
+    feeDrops: intent.estimatedFeeDrops,
+    reserveDrops: intent.estimatedReserveDrops,
+    periodStart: intent.quotaPeriodStart,
+    now: new Date()
+  })
   await tx.insert(fundingLedgerEntries).values({
     sponsorAccountId,
+    treasuryId: sponsor.treasuryId,
     intentId: intent.id,
     type: 'release',
     feeDrops: intent.estimatedFeeDrops,
@@ -136,23 +144,27 @@ async function finalizeValidated(intentId: string, transaction: ValidatedTransac
   const actualFeeDrops = BigInt(String(transaction.tx_json?.Fee || transaction.Fee || '0'))
   const database = useDatabase()
   await database.transaction(async (tx) => {
-    const [context] = await tx.select({ intent: sponsorshipIntents, sponsor: sponsorAccounts })
+    const [context] = await tx.select({ intent: sponsorshipIntents, sponsor: sponsorAccounts, treasury: sponsorTreasuries })
       .from(sponsorshipIntents)
       .innerJoin(sponsorAccounts, eq(sponsorAccounts.id, sponsorshipIntents.sponsorAccountId))
+      .innerJoin(sponsorTreasuries, eq(sponsorTreasuries.id, sponsorAccounts.treasuryId))
       .where(eq(sponsorshipIntents.id, intentId)).for('update').limit(1)
     if (!context || ['validated', 'failed', 'expired'].includes(context.intent.state)) return
-    const [balance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.sponsorAccountId, context.sponsor.id)).for('update').limit(1)
-    if (!balance) throw new Error('Sponsor funding balance is unavailable')
-    await tx.update(fundingBalances).set({
-      pendingFeeDrops: balance.pendingFeeDrops > context.intent.estimatedFeeDrops ? balance.pendingFeeDrops - context.intent.estimatedFeeDrops : 0n,
-      pendingReserveDrops: balance.pendingReserveDrops > context.intent.estimatedReserveDrops ? balance.pendingReserveDrops - context.intent.estimatedReserveDrops : 0n,
-      capturedFeeDrops: balance.capturedFeeDrops + actualFeeDrops,
-      lockedReserveDrops: balance.lockedReserveDrops + (successful ? context.intent.estimatedReserveDrops : 0n),
-      version: balance.version + 1,
-      updatedAt: new Date()
-    }).where(eq(fundingBalances.sponsorAccountId, context.sponsor.id))
+    await captureFunding(tx, {
+      sponsorAccountId: context.sponsor.id,
+      treasuryId: context.treasury.id,
+      projectId: context.intent.projectId,
+      accountAddress: context.intent.accountAddress,
+      estimatedFeeDrops: context.intent.estimatedFeeDrops,
+      estimatedReserveDrops: context.intent.estimatedReserveDrops,
+      actualFeeDrops,
+      successful,
+      periodStart: context.intent.quotaPeriodStart,
+      now: new Date()
+    })
     await tx.insert(fundingLedgerEntries).values({
       sponsorAccountId: context.sponsor.id,
+      treasuryId: context.treasury.id,
       intentId,
       type: 'capture',
       feeDrops: actualFeeDrops,
@@ -163,6 +175,7 @@ async function finalizeValidated(intentId: string, transaction: ValidatedTransac
     if (!successful && context.intent.estimatedReserveDrops > 0n) {
       await tx.insert(fundingLedgerEntries).values({
         sponsorAccountId: context.sponsor.id,
+        treasuryId: context.treasury.id,
         intentId,
         type: 'release',
         reserveDrops: context.intent.estimatedReserveDrops,
@@ -173,12 +186,13 @@ async function finalizeValidated(intentId: string, transaction: ValidatedTransac
     await tx.insert(usageEvents).values({ projectId: context.intent.projectId, intentId, chargeType: 'fee', feeDrops: actualFeeDrops }).onConflictDoNothing()
     if (successful && context.intent.estimatedReserveDrops > 0n) {
       await tx.insert(usageEvents).values({ projectId: context.intent.projectId, intentId, chargeType: 'reserve', reserveDrops: context.intent.estimatedReserveDrops }).onConflictDoNothing()
-      const targets = reserveTargets(metadata, context.intent, context.sponsor.address)
+      const targets = reserveTargets(metadata, context.intent, context.treasury.address)
       const perTarget = context.intent.estimatedReserveDrops / BigInt(targets.length || 1)
       for (const [index, target] of targets.entries()) {
         const remainder = index === targets.length - 1 ? context.intent.estimatedReserveDrops - perTarget * BigInt(index) : perTarget
         await tx.insert(reserveObligations).values({
           sponsorAccountId: context.sponsor.id,
+          treasuryId: context.treasury.id,
           intentId,
           ownerAddress: context.intent.accountAddress,
           objectId: target.objectId,
@@ -211,30 +225,33 @@ async function ensureReconciliationEvent(intentId: string) {
 async function verifyMigrationLedgerState(intentId: string, rpcUrl: string, transaction: ValidatedTransaction) {
   const metadata = typeof transaction.meta === 'object' ? transaction.meta : undefined
   if (metadata?.TransactionResult !== 'tesSUCCESS') return
-  const [migration] = await useDatabase().select({ target: reserveMigrationTargets, plan: reserveMigrationPlans, sponsor: sponsorAccounts })
+  const [migration] = await useDatabase().select({ target: reserveMigrationTargets, plan: reserveMigrationPlans, sponsor: sponsorAccounts, treasury: sponsorTreasuries })
     .from(reserveMigrationTargets)
     .innerJoin(reserveMigrationPlans, eq(reserveMigrationPlans.id, reserveMigrationTargets.planId))
     .innerJoin(sponsorAccounts, eq(sponsorAccounts.id, reserveMigrationPlans.sponsorAccountId))
+    .innerJoin(sponsorTreasuries, eq(sponsorTreasuries.id, sponsorAccounts.treasuryId))
     .where(eq(reserveMigrationTargets.intentId, intentId)).limit(1)
   if (!migration) return
   const inspection = await inspectReserveTargets({ rpcUrl, account: migration.plan.accountAddress })
   const target = inspection.targets.find(item => item.targetKey === migration.target.targetKey)
-  if (!target || target.observedSponsor !== migration.sponsor.address) {
+  if (!target || target.observedSponsor !== migration.treasury.address) {
     throw new Error('Validated transfer is not yet reflected in the target ledger object')
   }
 }
 
 async function processSubmit(event: OutboxEvent) {
   const database = useDatabase()
-  const [context] = await database.select({ intent: sponsorshipIntents, project: projects, sponsor: sponsorAccounts, submission: submissions })
+  const [context] = await database.select({ intent: sponsorshipIntents, project: projects, organization: organizations, sponsor: sponsorAccounts, treasury: sponsorTreasuries, submission: submissions })
     .from(sponsorshipIntents)
     .innerJoin(projects, eq(projects.id, sponsorshipIntents.projectId))
+    .innerJoin(organizations, eq(organizations.id, projects.organizationId))
     .innerJoin(sponsorAccounts, eq(sponsorAccounts.id, sponsorshipIntents.sponsorAccountId))
+    .innerJoin(sponsorTreasuries, eq(sponsorTreasuries.id, sponsorAccounts.treasuryId))
     .innerJoin(submissions, and(eq(submissions.intentId, sponsorshipIntents.id), eq(submissions.attempt, 1)))
     .where(eq(sponsorshipIntents.id, event.aggregateId)).limit(1)
   if (!context) throw new Error('Outbox submission context does not exist')
   const [control] = await database.select().from(platformControls).where(eq(platformControls.key, 'sponsorship')).limit(1)
-  if (control?.paused || context.project.status !== 'active' || context.sponsor.status !== 'active') throw new SponsorshipPausedError()
+  if (control?.paused || context.organization.status !== 'active' || context.project.status !== 'active' || context.sponsor.status !== 'active' || context.treasury.status !== 'active') throw new SponsorshipPausedError()
   await loadSponsorProtocolDefinitions({ rpcUrl: context.project.rpcUrl, allowedHashes: [context.intent.definitionsHash], forceRefresh: true })
   try {
     const existing = await xrplRpc<ValidatedTransaction>(context.project.rpcUrl, 'tx', { transaction: context.submission.transactionHash, binary: false }, { retries: 0 })
@@ -361,9 +378,10 @@ export async function recordWorkerHeartbeat(instanceId: string, status: 'running
 
 export async function reconcileOneReserveObligation(): Promise<boolean> {
   const database = useDatabase()
-  const [context] = await database.select({ obligation: reserveObligations, sponsor: sponsorAccounts, project: projects })
+  const [context] = await database.select({ obligation: reserveObligations, sponsor: sponsorAccounts, treasury: sponsorTreasuries, project: projects })
     .from(reserveObligations)
     .innerJoin(sponsorAccounts, eq(sponsorAccounts.id, reserveObligations.sponsorAccountId))
+    .innerJoin(sponsorTreasuries, eq(sponsorTreasuries.id, reserveObligations.treasuryId))
     .innerJoin(projects, eq(projects.id, sponsorAccounts.projectId))
     .where(eq(reserveObligations.state, 'active'))
     .orderBy(asc(reserveObligations.updatedAt))
@@ -389,17 +407,19 @@ export async function reconcileOneReserveObligation(): Promise<boolean> {
     const absent = error instanceof XrplRpcError && ['actNotFound', 'entryNotFound'].includes(error.code || '')
     if (!absent) throw error
   }
-  if (currentSponsor === context.sponsor.address) {
+  if (currentSponsor === context.treasury.address) {
     await database.update(reserveObligations).set({ updatedAt: new Date() }).where(eq(reserveObligations.id, context.obligation.id))
     return true
   }
   await database.transaction(async (tx) => {
     const [obligation] = await tx.select().from(reserveObligations).where(eq(reserveObligations.id, context.obligation.id)).for('update').limit(1)
     if (!obligation || obligation.state !== 'active') return
-    const [balance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.sponsorAccountId, obligation.sponsorAccountId)).for('update').limit(1)
+    const [intent] = await tx.select({ quotaPeriodStart: sponsorshipIntents.quotaPeriodStart }).from(sponsorshipIntents).where(eq(sponsorshipIntents.id, obligation.intentId)).limit(1)
+    const [balance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, obligation.treasuryId)).for('update').limit(1)
     if (!balance) throw new Error('Sponsor funding balance is unavailable')
     await tx.insert(fundingLedgerEntries).values({
       sponsorAccountId: obligation.sponsorAccountId,
+      treasuryId: obligation.treasuryId,
       intentId: obligation.intentId,
       type: 'release',
       reserveDrops: obligation.reserveDrops,
@@ -410,7 +430,8 @@ export async function reconcileOneReserveObligation(): Promise<boolean> {
       lockedReserveDrops: balance.lockedReserveDrops > obligation.reserveDrops ? balance.lockedReserveDrops - obligation.reserveDrops : 0n,
       version: balance.version + 1,
       updatedAt: new Date()
-    }).where(eq(fundingBalances.sponsorAccountId, obligation.sponsorAccountId))
+    }).where(eq(fundingBalances.treasuryId, obligation.treasuryId))
+    await releaseReserveExposure(tx, { projectId: context.project.id, accountAddress: obligation.ownerAddress, reserveDrops: obligation.reserveDrops, periodStart: intent?.quotaPeriodStart, now: new Date() })
     await tx.update(reserveObligations).set({ state: 'released', releasedLedgerIndex: ledgerIndex || null, updatedAt: new Date() }).where(eq(reserveObligations.id, obligation.id))
     await tx.update(reserveMigrationTargets).set({ state: 'released', updatedAt: new Date() }).where(eq(reserveMigrationTargets.intentId, obligation.intentId))
   })

@@ -8,8 +8,8 @@ export async function requireProjectMember(event: H3Event, projectPublicId?: str
   const session = await auth.api.getSession({ headers: event.headers })
   if (!session?.user) throw createError({ statusCode: 401, statusMessage: 'Authentication required' })
   const where = projectPublicId
-    ? and(eq(organizationMemberships.userId, session.user.id), eq(projects.publicId, projectPublicId))
-    : eq(organizationMemberships.userId, session.user.id)
+    ? and(eq(organizationMemberships.userId, session.user.id), eq(projects.publicId, projectPublicId), eq(organizations.status, 'active'))
+    : and(eq(organizationMemberships.userId, session.user.id), eq(organizations.status, 'active'))
   const [membership] = await useDatabase().select({ membership: organizationMemberships, organization: organizations, project: projects })
     .from(organizationMemberships)
     .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))

@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { and, count, desc, eq, gte } from 'drizzle-orm'
 import type { projects } from '../database/schema'
-import { intentEvents, sponsorAccounts, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies } from '../database/schema'
+import { intentEvents, projectSponsorAccounts, sponsorAccounts, sponsorTreasuries, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies } from '../database/schema'
 import { canonicalHash } from '../domain/canonical-json'
 import { evaluatePolicy, policyDocumentSchema } from '../domain/policy'
 import { useDatabase } from '../utils/database'
@@ -46,6 +46,29 @@ export function intentCreationResponse(intent: typeof sponsorshipIntents.$inferS
   }
 }
 
+/**
+ * Reconstruct an unconsumed signing package after a client lost the original
+ * response. The token is deterministic, so this does not create a second
+ * grant or alter the intent's lifecycle.
+ */
+export async function resumeSponsorshipIntentSigning(projectId: string, intentId: string) {
+  const database = useDatabase()
+  const [row] = await database.select({ intent: sponsorshipIntents, grant: sponsorshipGrants }).from(sponsorshipIntents)
+    .innerJoin(sponsorshipGrants, eq(sponsorshipGrants.intentId, sponsorshipIntents.id))
+    .where(and(eq(sponsorshipIntents.id, intentId), eq(sponsorshipIntents.projectId, projectId), eq(sponsorshipGrants.projectId, projectId), eq(sponsorshipGrants.audience, 'xrpl-connect')))
+    .limit(1)
+  if (!row) throw createError({ statusCode: 404, statusMessage: 'Intent signing package not found' })
+  const now = new Date()
+  if (row.intent.state !== 'awaiting_user_signature') throw createError({ statusCode: 409, statusMessage: 'Intent is no longer awaiting user signature' })
+  if (row.intent.expiresAt <= now || row.grant.expiresAt <= now) throw createError({ statusCode: 410, statusMessage: 'Intent signing package has expired' })
+  if (row.grant.consumedAt || row.grant.accountAddress !== row.intent.accountAddress || row.grant.canonicalHash !== row.intent.canonicalHash) {
+    throw createError({ statusCode: 409, statusMessage: 'Intent signing package is no longer available' })
+  }
+  const token = grantToken(row.intent.id, row.intent.idempotencyKey, row.intent.requestHash)
+  if (grantHash(token) !== row.grant.tokenHash) throw createError({ statusCode: 409, statusMessage: 'Intent signing package is no longer available' })
+  return intentCreationResponse(row.intent, token)
+}
+
 export async function createSponsorshipIntent(input: {
   project: typeof projects.$inferSelect
   idempotencyKey: string
@@ -63,8 +86,12 @@ export async function createSponsorshipIntent(input: {
   const managedField = Object.keys(input.request.transaction).find(field => managedFields.has(field))
   if (managedField) throw createError({ statusCode: 400, statusMessage: `${managedField} is managed by ACME and must be omitted` })
   if (typeof input.request.transaction.TransactionType !== 'string') throw createError({ statusCode: 400, statusMessage: 'TransactionType is required' })
-  const [sponsor] = await database.select().from(sponsorAccounts).where(and(eq(sponsorAccounts.projectId, input.project.id), eq(sponsorAccounts.network, input.project.network), eq(sponsorAccounts.status, 'active'))).limit(1)
-  if (!sponsor) throw createError({ statusCode: 409, statusMessage: 'No active sponsor account is configured for this project' })
+  const [sponsorBinding] = await database.select({ binding: sponsorAccounts, treasury: sponsorTreasuries }).from(projectSponsorAccounts)
+    .innerJoin(sponsorAccounts, eq(sponsorAccounts.id, projectSponsorAccounts.sponsorAccountId))
+    .innerJoin(sponsorTreasuries, eq(sponsorTreasuries.id, sponsorAccounts.treasuryId))
+    .where(and(eq(projectSponsorAccounts.projectId, input.project.id), eq(projectSponsorAccounts.network, input.project.network), eq(sponsorAccounts.status, 'active'), eq(sponsorTreasuries.status, 'active'))).limit(1)
+  if (!sponsorBinding) throw createError({ statusCode: 409, statusMessage: 'No active sponsor account is configured for this project' })
+  const sponsor = sponsorBinding.treasury
   const policyWhere = input.request.policyId
     ? and(eq(sponsorshipPolicies.id, input.request.policyId), eq(sponsorshipPolicies.projectId, input.project.id), eq(sponsorshipPolicies.status, 'active'))
     : and(eq(sponsorshipPolicies.projectId, input.project.id), eq(sponsorshipPolicies.status, 'active'))
@@ -104,7 +131,7 @@ export async function createSponsorshipIntent(input: {
   const token = grantToken(intentId, input.idempotencyKey, requestHash)
   const intent = await database.transaction(async (tx) => {
     const [created] = await tx.insert(sponsorshipIntents).values({
-      id: intentId, projectId: input.project.id, sponsorAccountId: sponsor.id, policyId: policyRow.id,
+      id: intentId, projectId: input.project.id, sponsorAccountId: sponsorBinding.binding.id, policyId: policyRow.id,
       accountAddress: input.request.account, network: input.project.network, networkId: protocol.networkId,
       definitionsHash: protocol.definitionsHash, mode: input.request.sponsorship.fee && input.request.sponsorship.reserve ? 'fee_and_reserve' : input.request.sponsorship.reserve ? 'reserve' : 'fee',
       canonicalTransaction: transaction, canonicalHash: transactionHash, preparedLedgerIndex: serverInfo.info.validated_ledger.seq,

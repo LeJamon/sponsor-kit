@@ -1,5 +1,5 @@
-import { and, count, desc, eq, inArray, isNull, lte } from 'drizzle-orm'
-import { auditLogs, fundingBalances, networkSnapshots, outboxEvents, platformControls, projects, sponsorAccounts, sponsorshipIntents, workerHeartbeats } from '~~/server/database/schema'
+import { and, count, desc, eq, inArray, isNotNull, isNull, lte } from 'drizzle-orm'
+import { auditLogs, fundingBalances, networkSnapshots, outboxEvents, platformControls, projects, sponsorAccounts, sponsorTreasuries, sponsorshipIntents, workerHeartbeats } from '~~/server/database/schema'
 import { createSponsorSigner } from '~~/server/services/signer/factory'
 import { requirePlatformAdmin } from '~~/server/utils/admin'
 import { useDatabase } from '~~/server/utils/database'
@@ -9,13 +9,15 @@ export default defineEventHandler(async (event) => {
   await requirePlatformAdmin(event)
   const database = useDatabase()
   const now = new Date()
-  const [projectCount, pendingIntentCount, validatedIntentCount, failedIntentCount, pendingOutboxCount, sponsors, balances, controlRows, snapshots, heartbeats, audits, oldestOutbox, sampleProject] = await Promise.all([
+  const [projectCount, pendingIntentCount, validatedIntentCount, failedIntentCount, pendingOutboxCount, deadLetterCount, sponsors, treasuries, balances, controlRows, snapshots, heartbeats, audits, oldestOutbox, sampleProject] = await Promise.all([
     database.select({ value: count() }).from(projects).where(eq(projects.status, 'active')),
     database.select({ value: count() }).from(sponsorshipIntents).where(inArray(sponsorshipIntents.state, ['created', 'awaiting_user_signature', 'user_signature_received', 'verified', 'awaiting_sponsor_signature', 'submitting', 'submitted'])),
     database.select({ value: count() }).from(sponsorshipIntents).where(eq(sponsorshipIntents.state, 'validated')),
     database.select({ value: count() }).from(sponsorshipIntents).where(inArray(sponsorshipIntents.state, ['failed', 'rejected', 'expired', 'cancelled'])),
     database.select({ value: count() }).from(outboxEvents).where(and(isNull(outboxEvents.processedAt), isNull(outboxEvents.deadLetteredAt), lte(outboxEvents.availableAt, now))),
+    database.select({ value: count() }).from(outboxEvents).where(isNotNull(outboxEvents.deadLetteredAt)),
     database.select().from(sponsorAccounts),
+    database.select().from(sponsorTreasuries),
     database.select().from(fundingBalances),
     database.select().from(platformControls).where(eq(platformControls.key, 'sponsorship')).limit(1),
     database.select().from(networkSnapshots).orderBy(desc(networkSnapshots.observedAt)).limit(5),
@@ -24,9 +26,9 @@ export default defineEventHandler(async (event) => {
     database.select({ createdAt: outboxEvents.createdAt }).from(outboxEvents).where(and(isNull(outboxEvents.processedAt), isNull(outboxEvents.deadLetteredAt))).orderBy(outboxEvents.createdAt).limit(1),
     database.select().from(projects).where(eq(projects.status, 'active')).limit(1)
   ])
-  const balanceBySponsor = new Map(balances.map(balance => [balance.sponsorAccountId, balance]))
-  const funding = sponsors.reduce((total, sponsor) => {
-    const balance = balanceBySponsor.get(sponsor.id)
+  const balanceByTreasury = new Map(balances.map(balance => [balance.treasuryId, balance]))
+  const funding = treasuries.reduce((total, sponsor) => {
+    const balance = balanceByTreasury.get(sponsor.id)
     return {
       observedBalanceDrops: total.observedBalanceDrops + sponsor.observedBalanceDrops,
       pendingFeeDrops: total.pendingFeeDrops + (balance?.pendingFeeDrops || 0n),
@@ -59,11 +61,13 @@ export default defineEventHandler(async (event) => {
       validatedIntents: validatedIntentCount[0]?.value || 0,
       failedIntents: failedIntentCount[0]?.value || 0,
       sponsorAccounts: sponsors.length,
+      sponsorTreasuries: treasuries.length,
       observedBalanceDrops: funding.observedBalanceDrops.toString(),
       pendingFeeDrops: funding.pendingFeeDrops.toString(),
       pendingReserveDrops: funding.pendingReserveDrops.toString(),
       lockedReserveDrops: funding.lockedReserveDrops.toString(),
       pendingOutbox: pendingOutboxCount[0]?.value || 0,
+      deadLetteredOutbox: deadLetterCount[0]?.value || 0,
       oldestPendingOutboxAt: oldestOutbox[0]?.createdAt || null
     },
     services: {

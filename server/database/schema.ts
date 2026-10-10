@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm'
-import { bigint, boolean, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { bigint, boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 export const memberRole = pgEnum('member_role', ['owner', 'admin', 'developer', 'viewer'])
 export const projectStatus = pgEnum('project_status', ['active', 'paused', 'archived'])
@@ -117,9 +117,29 @@ export const sponsorshipPolicies = pgTable('sponsorship_policies', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 }, table => [uniqueIndex('policy_project_name_version_unique').on(table.projectId, table.name, table.version)])
 
+/**
+ * A physical sponsor account is shared by every project that binds it.  The
+ * project-scoped sponsor_accounts row below is retained as the compatibility
+ * binding used by existing intents and migration plans.
+ */
+export const sponsorTreasuries = pgTable('sponsor_treasuries', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  network: network('network').notNull(),
+  address: text('address').notNull(),
+  signerProvider: text('signer_provider').default('local').notNull(),
+  signerKeyReference: text('signer_key_reference').notNull(),
+  capabilities: jsonb('capabilities').$type<Record<string, boolean>>().notNull(),
+  status: projectStatus('status').default('active').notNull(),
+  safetyBufferDrops: bigint('safety_buffer_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  observedBalanceDrops: bigint('observed_balance_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  reconciledAt: timestamp('reconciled_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+}, table => [uniqueIndex('sponsor_treasury_network_address_unique').on(table.network, table.address)])
+
 export const sponsorAccounts = pgTable('sponsor_accounts', {
   id: uuid('id').defaultRandom().primaryKey(),
   projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'restrict' }),
+  treasuryId: uuid('treasury_id').notNull().references(() => sponsorTreasuries.id, { onDelete: 'restrict' }),
   network: network('network').notNull(),
   address: text('address').notNull(),
   signerProvider: text('signer_provider').default('local').notNull(),
@@ -132,15 +152,50 @@ export const sponsorAccounts = pgTable('sponsor_accounts', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
 }, table => [uniqueIndex('sponsor_project_network_unique').on(table.projectId, table.network)])
 
+export const projectSponsorAccounts = pgTable('project_sponsor_accounts', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  sponsorAccountId: uuid('sponsor_account_id').notNull().references(() => sponsorAccounts.id, { onDelete: 'restrict' }),
+  network: network('network').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
+}, table => [primaryKey({ columns: [table.projectId, table.sponsorAccountId] }), uniqueIndex('project_sponsor_network_unique').on(table.projectId, table.network)])
+
 export const fundingBalances = pgTable('funding_balances', {
   sponsorAccountId: uuid('sponsor_account_id').primaryKey().references(() => sponsorAccounts.id, { onDelete: 'cascade' }),
+  treasuryId: uuid('treasury_id').notNull().references(() => sponsorTreasuries.id, { onDelete: 'cascade' }),
   pendingFeeDrops: bigint('pending_fee_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
   capturedFeeDrops: bigint('captured_fee_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
   pendingReserveDrops: bigint('pending_reserve_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
   lockedReserveDrops: bigint('locked_reserve_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
   version: integer('version').default(0).notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+}, table => [uniqueIndex('funding_balance_treasury_unique').on(table.treasuryId)])
+
+export const projectFundingBudgets = pgTable('project_funding_budgets', {
+  projectId: uuid('project_id').primaryKey().references(() => projects.id, { onDelete: 'cascade' }),
+  feeBudgetDrops: bigint('fee_budget_drops', { mode: 'bigint' }).default(sql`1000000`).notNull(),
+  reserveBudgetDrops: bigint('reserve_budget_drops', { mode: 'bigint' }).default(sql`100000000`).notNull(),
+  walletFeeQuotaDrops: bigint('wallet_fee_quota_drops', { mode: 'bigint' }).default(sql`100000`).notNull(),
+  walletReserveQuotaDrops: bigint('wallet_reserve_quota_drops', { mode: 'bigint' }).default(sql`10000000`).notNull(),
+  quotaPeriodSeconds: integer('quota_period_seconds').default(86400).notNull(),
+  feeReservedDrops: bigint('fee_reserved_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  feeSpentDrops: bigint('fee_spent_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  reserveReservedDrops: bigint('reserve_reserved_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  reserveExposureDrops: bigint('reserve_exposure_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  version: integer('version').default(0).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
 })
+
+export const projectFundingQuotas = pgTable('project_funding_quotas', {
+  projectId: uuid('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' }),
+  accountAddress: text('account_address').notNull(),
+  periodStart: timestamp('period_start', { withTimezone: true }).notNull(),
+  feeReservedDrops: bigint('fee_reserved_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  feeSpentDrops: bigint('fee_spent_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  reserveReservedDrops: bigint('reserve_reserved_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  reserveExposureDrops: bigint('reserve_exposure_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  version: integer('version').default(0).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
+}, table => [primaryKey({ columns: [table.projectId, table.accountAddress, table.periodStart] })])
 
 export const sponsorshipIntents = pgTable('sponsorship_intents', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -161,6 +216,7 @@ export const sponsorshipIntents = pgTable('sponsorship_intents', {
   policySnapshot: jsonb('policy_snapshot').$type<Record<string, unknown>>().notNull(),
   estimatedFeeDrops: bigint('estimated_fee_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
   estimatedReserveDrops: bigint('estimated_reserve_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
+  quotaPeriodStart: timestamp('quota_period_start', { withTimezone: true }),
   idempotencyKey: text('idempotency_key').notNull(),
   correlationId: text('correlation_id').notNull(),
   state: intentState('state').default('created').notNull(),
@@ -196,6 +252,7 @@ export const intentEvents = pgTable('intent_events', {
 export const fundingLedgerEntries = pgTable('funding_ledger_entries', {
   id: uuid('id').defaultRandom().primaryKey(),
   sponsorAccountId: uuid('sponsor_account_id').notNull().references(() => sponsorAccounts.id, { onDelete: 'restrict' }),
+  treasuryId: uuid('treasury_id').notNull().references(() => sponsorTreasuries.id, { onDelete: 'restrict' }),
   intentId: uuid('intent_id').references(() => sponsorshipIntents.id, { onDelete: 'restrict' }),
   type: fundingEntryType('type').notNull(),
   feeDrops: bigint('fee_drops', { mode: 'bigint' }).default(sql`0`).notNull(),
@@ -203,7 +260,7 @@ export const fundingLedgerEntries = pgTable('funding_ledger_entries', {
   idempotencyKey: text('idempotency_key').notNull(),
   reason: text('reason'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull()
-}, table => [uniqueIndex('funding_entry_idempotency_unique').on(table.sponsorAccountId, table.idempotencyKey)])
+}, table => [uniqueIndex('funding_entry_idempotency_unique').on(table.sponsorAccountId, table.idempotencyKey), uniqueIndex('funding_treasury_entry_idempotency_unique').on(table.treasuryId, table.idempotencyKey)])
 
 export const submissions = pgTable('submissions', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -224,6 +281,7 @@ export const submissions = pgTable('submissions', {
 export const reserveObligations = pgTable('reserve_obligations', {
   id: uuid('id').defaultRandom().primaryKey(),
   sponsorAccountId: uuid('sponsor_account_id').notNull().references(() => sponsorAccounts.id, { onDelete: 'restrict' }),
+  treasuryId: uuid('treasury_id').notNull().references(() => sponsorTreasuries.id, { onDelete: 'restrict' }),
   intentId: uuid('intent_id').notNull().references(() => sponsorshipIntents.id, { onDelete: 'restrict' }),
   ownerAddress: text('owner_address').notNull(),
   objectId: text('object_id'),
@@ -235,7 +293,7 @@ export const reserveObligations = pgTable('reserve_obligations', {
   releasedLedgerIndex: bigint('released_ledger_index', { mode: 'number' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull()
-}, table => [uniqueIndex('reserve_active_object_unique').on(table.sponsorAccountId, table.ownerAddress, table.objectId), index('reserve_owner_idx').on(table.ownerAddress)])
+}, table => [index('reserve_active_object_treasury_idx').on(table.treasuryId, table.ownerAddress, table.objectId), index('reserve_owner_idx').on(table.ownerAddress)])
 
 export const usageEvents = pgTable('usage_events', {
   id: uuid('id').defaultRandom().primaryKey(),

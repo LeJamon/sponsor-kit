@@ -1,10 +1,11 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { and, eq, gt, isNull } from 'drizzle-orm'
 import { z } from 'zod'
-import { fundingBalances, fundingLedgerEntries, intentEvents, outboxEvents, platformControls, projects, reserveMigrationPlans, reserveMigrationTargets, sponsorAccounts, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies, submissions } from '~~/server/database/schema'
+import { fundingBalances, fundingLedgerEntries, intentEvents, organizations, outboxEvents, platformControls, projects, reserveMigrationPlans, reserveMigrationTargets, sponsorAccounts, sponsorTreasuries, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies, submissions } from '~~/server/database/schema'
 import { canonicalHash } from '~~/server/domain/canonical-json'
 import { evaluatePolicy, policyDocumentSchema } from '~~/server/domain/policy'
 import { createSponsorSigner } from '~~/server/services/signer/factory'
+import { FundingCapacityError, reserveFundingCapacity } from '~~/server/services/funding'
 import type { XrplTransaction } from '~~/server/services/signer/types'
 import { inspectReserveTargets } from '~~/server/services/reserve-inspection'
 import { verifySponseeLedgerAuthorization } from '~~/server/services/xrpl/authorization'
@@ -38,13 +39,33 @@ export default defineEventHandler(async (event) => {
   const parsed = bodySchema.safeParse(await readBody(event))
   if (!parsed.success) throw createError({ statusCode: 400, statusMessage: 'Invalid authorization request', data: parsed.error.flatten() })
   const database = useDatabase()
-  const [context] = await database.select({ intent: sponsorshipIntents, project: projects, sponsor: sponsorAccounts, policy: sponsorshipPolicies }).from(sponsorshipIntents)
+  const [context] = await database.select({ intent: sponsorshipIntents, project: projects, organization: organizations, sponsor: sponsorAccounts, treasury: sponsorTreasuries, policy: sponsorshipPolicies }).from(sponsorshipIntents)
     .innerJoin(projects, eq(projects.id, sponsorshipIntents.projectId))
+    .innerJoin(organizations, eq(organizations.id, projects.organizationId))
     .innerJoin(sponsorAccounts, eq(sponsorAccounts.id, sponsorshipIntents.sponsorAccountId))
+    .innerJoin(sponsorTreasuries, eq(sponsorTreasuries.id, sponsorAccounts.treasuryId))
     .innerJoin(sponsorshipPolicies, eq(sponsorshipPolicies.id, sponsorshipIntents.policyId))
     .where(eq(sponsorshipIntents.id, intentId)).limit(1)
   if (!context) throw createError({ statusCode: 404, statusMessage: 'Intent not found' })
-  if (context.project.status !== 'active' || context.sponsor.status !== 'active' || context.policy.status !== 'active') throw createError({ statusCode: 409, statusMessage: 'Sponsorship is paused for this project' })
+  if (['submitting', 'submitted', 'validated'].includes(context.intent.state)) {
+    const tokenHash = hashToken(parsed.data.grant)
+    const [existingGrant] = await database.select({ tokenHash: sponsorshipGrants.tokenHash }).from(sponsorshipGrants).where(and(
+      eq(sponsorshipGrants.intentId, intentId),
+      eq(sponsorshipGrants.projectId, context.intent.projectId),
+      eq(sponsorshipGrants.accountAddress, context.intent.accountAddress),
+      eq(sponsorshipGrants.canonicalHash, context.intent.canonicalHash),
+      eq(sponsorshipGrants.audience, 'xrpl-connect')
+    )).limit(1)
+    if (!existingGrant || !hashesEqual(tokenHash, existingGrant.tokenHash)) throw createError({ statusCode: 403, statusMessage: 'Grant is invalid or does not authorize this intent' })
+    const existingBlob = context.intent.userSignedBlob?.toUpperCase()
+    if (!existingBlob || existingBlob !== parsed.data.signedTransaction.toUpperCase()) throw createError({ statusCode: 409, statusMessage: 'Intent was already authorized with a different signed transaction' })
+    const [submission] = await database.select({ transactionHash: submissions.transactionHash }).from(submissions).where(and(eq(submissions.intentId, intentId), eq(submissions.attempt, 1))).limit(1)
+    if (!submission) throw createError({ statusCode: 409, statusMessage: 'Intent authorization is still being finalized; retry with the exact signed transaction' })
+    setResponseStatus(event, 202)
+    return { intentId, state: context.intent.state, transactionHash: submission.transactionHash, engineResult: null }
+  }
+  if (['failed', 'rejected', 'expired', 'cancelled', 'superseded'].includes(context.intent.state)) throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
+  if (context.organization.status !== 'active' || context.project.status !== 'active' || context.sponsor.status !== 'active' || context.treasury.status !== 'active' || context.policy.status !== 'active') throw createError({ statusCode: 409, statusMessage: 'Sponsorship is paused for this project' })
   const tokenHash = hashToken(parsed.data.grant)
   const [preflightControl, preflightGrant] = await Promise.all([
     database.select().from(platformControls).where(eq(platformControls.key, 'sponsorship')).limit(1).then(rows => rows[0]),
@@ -98,9 +119,17 @@ export default defineEventHandler(async (event) => {
   const now = new Date()
   const signed = await database.transaction(async (tx) => {
     const [lockedIntent] = await tx.select().from(sponsorshipIntents).where(eq(sponsorshipIntents.id, intentId)).for('update').limit(1)
-    if (!lockedIntent || lockedIntent.state !== 'awaiting_user_signature' || lockedIntent.expiresAt <= now) throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
+    if (!lockedIntent) throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
+    if (lockedIntent.state !== 'awaiting_user_signature') {
+      const [existingSubmission] = await tx.select({ transactionHash: submissions.transactionHash }).from(submissions).where(and(eq(submissions.intentId, intentId), eq(submissions.attempt, 1))).limit(1)
+      if (['submitting', 'submitted', 'validated'].includes(lockedIntent.state) && lockedIntent.userSignedBlob?.toUpperCase() === parsed.data.signedTransaction.toUpperCase() && existingSubmission) return { replay: true as const, state: lockedIntent.state, transactionHash: existingSubmission.transactionHash }
+      throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
+    }
+    if (lockedIntent.expiresAt <= now) throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
     const [lockedProject] = await tx.select().from(projects).where(eq(projects.id, lockedIntent.projectId)).for('update').limit(1)
+    const [lockedOrganization] = lockedProject ? await tx.select().from(organizations).where(eq(organizations.id, lockedProject.organizationId)).for('update').limit(1) : []
     const [lockedSponsor] = await tx.select().from(sponsorAccounts).where(eq(sponsorAccounts.id, lockedIntent.sponsorAccountId!)).for('update').limit(1)
+    const [lockedTreasury] = await tx.select().from(sponsorTreasuries).where(eq(sponsorTreasuries.id, lockedSponsor?.treasuryId || '')).for('update').limit(1)
     const [lockedPolicy] = await tx.select().from(sponsorshipPolicies).where(eq(sponsorshipPolicies.id, lockedIntent.policyId!)).for('update').limit(1)
     const [control] = await tx.select().from(platformControls).where(eq(platformControls.key, 'sponsorship')).for('update').limit(1)
     const [grant] = await tx.select().from(sponsorshipGrants).where(and(
@@ -113,7 +142,7 @@ export default defineEventHandler(async (event) => {
       isNull(sponsorshipGrants.consumedAt),
       gt(sponsorshipGrants.expiresAt, now)
     )).for('update').limit(1)
-    if (!lockedProject || !lockedSponsor || !lockedPolicy || lockedProject.status !== 'active' || lockedSponsor.status !== 'active' || lockedPolicy.status !== 'active') {
+    if (!lockedProject || !lockedOrganization || !lockedSponsor || !lockedTreasury || !lockedPolicy || lockedOrganization.status !== 'active' || lockedProject.status !== 'active' || lockedSponsor.status !== 'active' || lockedTreasury.status !== 'active' || lockedPolicy.status !== 'active') {
       throw createError({ statusCode: 409, statusMessage: 'Sponsorship is paused for this project' })
     }
     if (!control || control.paused) throw createError({ statusCode: 503, statusMessage: control ? 'Sponsorship is globally paused' : 'Sponsorship control is not initialized' })
@@ -126,24 +155,28 @@ export default defineEventHandler(async (event) => {
       reserveDrops: lockedIntent.estimatedReserveDrops
     })
     if (!lockedPolicyDecision.allowed) throw createError({ statusCode: 403, statusMessage: lockedPolicyDecision.code, data: { reason: lockedPolicyDecision.reason } })
-    await tx.insert(fundingBalances).values({ sponsorAccountId: lockedSponsor.id }).onConflictDoNothing()
-    const [balance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.sponsorAccountId, lockedSponsor.id)).for('update').limit(1)
-    if (!balance) throw new Error('Sponsor funding balance is unavailable')
     const required = context.intent.estimatedFeeDrops + context.intent.estimatedReserveDrops
-    const available = liveSpendableDrops - lockedSponsor.safetyBufferDrops - balance.pendingFeeDrops - balance.pendingReserveDrops
+    const [sharedBalance] = await tx.select().from(fundingBalances).where(eq(fundingBalances.treasuryId, lockedTreasury.id)).for('update').limit(1)
+    const available = liveSpendableDrops - lockedTreasury.safetyBufferDrops - (sharedBalance?.pendingFeeDrops || 0n) - (sharedBalance?.pendingReserveDrops || 0n)
     if (available < required) throw createError({ statusCode: 409, statusMessage: 'Sponsor capacity is insufficient' })
     const sponsorSigned = await signer.signTransaction({
       network: lockedProject.network,
       intentId,
       canonicalTransaction: signedTransaction,
-      expectedSignerAddress: lockedSponsor.address,
+      expectedSignerAddress: lockedTreasury.address,
       expectedFeeDrops: lockedIntent.estimatedFeeDrops
     })
-    await tx.update(sponsorAccounts).set({ observedBalanceDrops, reconciledAt: now }).where(eq(sponsorAccounts.id, lockedSponsor.id))
-    await tx.update(fundingBalances).set({ pendingFeeDrops: balance.pendingFeeDrops + lockedIntent.estimatedFeeDrops, pendingReserveDrops: balance.pendingReserveDrops + lockedIntent.estimatedReserveDrops, version: balance.version + 1, updatedAt: now }).where(eq(fundingBalances.sponsorAccountId, lockedSponsor.id))
-    await tx.insert(fundingLedgerEntries).values({ sponsorAccountId: lockedSponsor.id, intentId, type: 'reservation', feeDrops: lockedIntent.estimatedFeeDrops, reserveDrops: lockedIntent.estimatedReserveDrops, idempotencyKey: `intent:${intentId}:reservation`, reason: 'Wallet authorization accepted' })
+    await tx.update(sponsorTreasuries).set({ observedBalanceDrops, reconciledAt: now }).where(eq(sponsorTreasuries.id, lockedTreasury.id))
+    let fundingCapacity: Awaited<ReturnType<typeof reserveFundingCapacity>>
+    try {
+      fundingCapacity = await reserveFundingCapacity(tx, { sponsorAccountId: lockedSponsor.id, treasuryId: lockedTreasury.id, projectId: lockedIntent.projectId, accountAddress: lockedIntent.accountAddress, feeDrops: lockedIntent.estimatedFeeDrops, reserveDrops: lockedIntent.estimatedReserveDrops, now })
+    } catch (error) {
+      if (error instanceof FundingCapacityError) throw createError({ statusCode: 409, statusMessage: error.code })
+      throw error
+    }
+    await tx.insert(fundingLedgerEntries).values({ sponsorAccountId: lockedSponsor.id, treasuryId: lockedTreasury.id, intentId, type: 'reservation', feeDrops: lockedIntent.estimatedFeeDrops, reserveDrops: lockedIntent.estimatedReserveDrops, idempotencyKey: `intent:${intentId}:reservation`, reason: 'Wallet authorization accepted' })
     await tx.update(sponsorshipGrants).set({ consumedAt: now }).where(eq(sponsorshipGrants.id, grant.id))
-    await tx.update(sponsorshipIntents).set({ state: 'submitting', userSignedBlob: parsed.data.signedTransaction.toUpperCase(), sponsorSigningHash: sponsorSigned.signingHash, updatedAt: now }).where(eq(sponsorshipIntents.id, intentId))
+    await tx.update(sponsorshipIntents).set({ state: 'submitting', userSignedBlob: parsed.data.signedTransaction.toUpperCase(), sponsorSigningHash: sponsorSigned.signingHash, quotaPeriodStart: fundingCapacity.periodStart, updatedAt: now }).where(eq(sponsorshipIntents.id, intentId))
     await tx.insert(intentEvents).values([
       { intentId, version: 2, fromState: 'awaiting_user_signature', toState: 'user_signature_received', actor: `wallet:${context.intent.accountAddress}` },
       { intentId, version: 3, fromState: 'user_signature_received', toState: 'verified', actor: 'system:policy' },
@@ -152,9 +185,11 @@ export default defineEventHandler(async (event) => {
     ])
     await tx.insert(submissions).values({ intentId, attempt: 1, signedBlob: sponsorSigned.signedBlob, transactionHash: sponsorSigned.txHash, endpoint: lockedProject.rpcUrl, firstSubmittedLedgerIndex: ledger.info.validated_ledger.seq })
     await tx.insert(outboxEvents).values({ aggregateType: 'sponsorship_intent', aggregateId: intentId, eventType: 'xrpl.submit', payload: { intentId, transactionHash: sponsorSigned.txHash } })
-    return sponsorSigned
+    return { replay: false as const, sponsorSigned }
   })
 
   setResponseStatus(event, 202)
-  return { intentId, state: 'submitting', transactionHash: signed.txHash, engineResult: null }
+  return signed.replay
+    ? { intentId, state: signed.state, transactionHash: signed.transactionHash, engineResult: null }
+    : { intentId, state: 'submitting', transactionHash: signed.sponsorSigned.txHash, engineResult: null }
 })
