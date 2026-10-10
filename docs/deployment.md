@@ -1,0 +1,121 @@
+# Devnet deployment
+
+ACME runs as a stateless Nuxt API and console backed by PostgreSQL. The runtime
+image contains only the generated Nuxt server and runs as the unprivileged
+`node` user. Database migrations and administrator bootstrap use the separate
+`tools` image so an application rollout never changes the schema implicitly.
+
+## Build the images
+
+Run both builds from the repository root. Build arguments are not used for
+secrets; all deployment settings are supplied when a container starts.
+
+```bash
+docker build --target runtime -t acme-sponsor-kit:devnet .
+docker build --target tools -t acme-sponsor-kit-tools:devnet .
+```
+
+The runtime image listens on `0.0.0.0:3000` and can be checked at
+`GET /api/v1/live`. That endpoint only proves that the Node process is serving
+requests. Use `GET /api/v1/health` for dependency status; it checks PostgreSQL,
+the configured XRPL endpoint, the signer, and the embedded worker and returns a
+meaningful JSON body with HTTP 503 when a dependency is degraded.
+
+## Provision runtime settings
+
+Create a secret set in the deployment platform. At minimum, configure:
+
+```text
+NUXT_PUBLIC_APP_URL=https://your-public-host.example
+NUXT_PUBLIC_DEFAULT_NETWORK=devnet
+DATABASE_URL=postgres://...
+BETTER_AUTH_SECRET=<unique random secret, at least 32 bytes>
+ACME_GRANT_SECRET=<different unique random secret, at least 32 bytes>
+ACME_XRPL_RPC_URL=https://s.devnet.rippletest.net:51234/
+ACME_XRPL_DEFINITIONS_HASHES=<allowlisted server_definitions hash>
+ACME_EMBEDDED_WORKER=true
+ACME_LOCAL_SPONSOR_SEED=<funded devnet seed>
+ACME_LOCAL_SPONSOR_ADDRESS=<address derived from that seed>
+ACME_ALLOW_LOCAL_SIGNER_ON_MAINNET=false
+```
+
+Keep the sponsor seed, authentication secrets, grant secret, and email
+provider secret server-only. They are read from the runtime environment and
+are not required during `docker build`. `ACME_XRPL_RPC_URL` is read at request
+time by the public network endpoint, so changing it does not require baking a
+new image.
+
+Password reset delivery is disabled unless a sender and one complete provider
+configuration are present. For a generic HTTP mail service set
+`ACME_PASSWORD_RESET_EMAIL_PROVIDER=http`,
+`ACME_PASSWORD_RESET_EMAIL_URL`, `ACME_PASSWORD_RESET_EMAIL_SECRET`, and
+`ACME_PASSWORD_RESET_EMAIL_FROM`. For Resend set
+`ACME_PASSWORD_RESET_EMAIL_PROVIDER=resend`,
+`ACME_PASSWORD_RESET_RESEND_API_KEY`, and
+`ACME_PASSWORD_RESET_EMAIL_FROM`. The sender should be a verified address.
+External mail endpoints must use HTTPS and cannot include URL credentials or
+query strings. For local testing only, a loopback HTTP endpoint can be enabled
+with `ACME_PASSWORD_RESET_ALLOW_INSECURE_HTTP=true` outside production.
+
+## Migrate before rollout
+
+Take a database backup before a production migration. Run the tools image with
+the same `DATABASE_URL` that the runtime will use. No `.env` file is required;
+the npm scripts use a local `.env` only when one exists.
+
+```bash
+docker run --rm --env-file deployment.env \
+  acme-sponsor-kit-tools:devnet \
+  ./node_modules/drizzle-kit/bin.cjs migrate
+
+docker run --rm --env-file deployment.env \
+  acme-sponsor-kit-tools:devnet \
+  --import tsx scripts/bootstrap-admin.ts
+```
+
+For a hosted database, provide all three bootstrap values in `deployment.env`:
+`ACME_BOOTSTRAP_ADMIN_EMAIL`, `ACME_BOOTSTRAP_ADMIN_PASSWORD` (at least 16
+characters), and optional `ACME_BOOTSTRAP_ADMIN_NAME`. The bootstrap is
+idempotent: an existing account is promoted to administrator after its
+credential account is verified. Never use the local default credentials in a
+hosted environment. Run the migration command again as a smoke check; applying
+the committed migrations repeatedly is safe and non-destructive.
+
+After the migration and bootstrap succeed, roll out the runtime image. Wait
+for `/api/v1/live` before routing traffic, then verify `/api/v1/health` and
+watch the worker heartbeat. Keep one embedded worker while using the local
+signer. When running several API replicas, set `ACME_EMBEDDED_WORKER=false`
+and supervise one or more separate `npm run worker` processes with the same
+database and XRPL settings.
+
+## Northflank runbook
+
+Create a service from the repository `Dockerfile`, set the target to
+`runtime`, expose HTTP port `3000`, and configure the liveness probe as
+`GET /api/v1/live`. Inject the values above as Northflank secrets or runtime
+variables. Set the health probe to `/api/v1/health` only when the platform can
+handle its intentional 503 response during dependency incidents.
+
+Run the `tools` target as a one-off job against the same private network and
+database before each rollout. The order is: backup, migrate, bootstrap or
+verify the administrator, deploy the runtime, then verify liveness and
+dependency health. Do not put database credentials or sponsor keys in the
+image, repository, or build logs.
+
+## Backup, restore, and worker monitoring
+
+Keep automated PostgreSQL backups and test restores into a disposable database
+at least once per release. A restore drill should use a fresh database, restore
+a representative backup, run the migration command, and verify the health
+endpoint and an authenticated sign-in before the backup is considered usable.
+Never run `pg_restore --clean` against the production database as part of a
+routine test.
+
+Monitor the `worker_heartbeats` row for `xrpl-intent-worker` and alert when it
+is missing, not `running`, or older than 30 seconds. Monitor the
+`outbox_events` table for rows where `dead_lettered_at` is set, and alert on
+increasing `attempts`, stale locks, and non-null `last_error`. Dead-lettered
+submission events require an operator to inspect the XRPL result and intent
+before replaying or correcting them; do not delete those rows to clear an
+alert. Keep logs redacted and never log reset tokens, authorization headers,
+signing material, or provider secrets.

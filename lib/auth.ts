@@ -3,6 +3,9 @@ import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { admin } from 'better-auth/plugins'
 import { useDatabase } from '../server/utils/database'
 import * as schema from '../server/database/schema'
+import { createPasswordResetSender } from '../server/utils/password-reset'
+
+const sendResetPassword = createPasswordResetSender()
 
 export const auth = betterAuth({
   database: drizzleAdapter(useDatabase(), { provider: 'pg', schema }),
@@ -11,7 +14,8 @@ export const auth = betterAuth({
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 12,
-    maxPasswordLength: 128
+    maxPasswordLength: 128,
+    ...(sendResetPassword ? { sendResetPassword } : {})
   },
   session: {
     expiresIn: 60 * 60 * 24 * 7,

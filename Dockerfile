@@ -1,12 +1,23 @@
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim AS dependencies
 
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
+FROM dependencies AS build
+
 COPY . .
 RUN ACME_EMBEDDED_WORKER=false NITRO_PRESET=node-server npm run build
+
+# This target contains the migration and bootstrap tooling. Keep it separate
+# from the runtime image and provide all settings at `docker run` time.
+FROM dependencies AS tools
+
+COPY . .
+ENV NODE_ENV=production
+USER node
+ENTRYPOINT ["node"]
 
 FROM node:24-bookworm-slim AS runtime
 

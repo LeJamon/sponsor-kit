@@ -12,16 +12,19 @@ export default defineNuxtConfig({
   css: ['~/assets/css/main.css'],
 
   runtimeConfig: {
-    databaseUrl: process.env.DATABASE_URL,
-    betterAuthSecret: process.env.BETTER_AUTH_SECRET,
-    localSponsorSeed: process.env.ACME_LOCAL_SPONSOR_SEED,
-    localSponsorAddress: process.env.ACME_LOCAL_SPONSOR_ADDRESS,
-    xrplRpcUrl: process.env.ACME_XRPL_RPC_URL || 'https://s.devnet.rippletest.net:51234/',
-    xrplDefinitionsHashes: process.env.ACME_XRPL_DEFINITIONS_HASHES,
-    allowLocalSignerOnMainnet: process.env.ACME_ALLOW_LOCAL_SIGNER_ON_MAINNET === 'true',
+    // Private settings are read directly by server code at runtime. Keeping
+    // them out of the build-time config prevents deployment secrets from
+    // being embedded in the generated Nitro bundle.
+    databaseUrl: '',
+    betterAuthSecret: '',
+    localSponsorSeed: '',
+    localSponsorAddress: '',
+    xrplRpcUrl: '',
+    xrplDefinitionsHashes: '',
+    allowLocalSignerOnMainnet: false,
     public: {
-      appUrl: process.env.NUXT_PUBLIC_APP_URL || 'http://localhost:3000',
-      defaultNetwork: process.env.NUXT_PUBLIC_DEFAULT_NETWORK || 'devnet'
+      appUrl: '',
+      defaultNetwork: 'devnet'
     }
   },
 

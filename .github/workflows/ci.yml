@@ -14,6 +14,28 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://acme:acme@localhost:5432/acme
+      BETTER_AUTH_SECRET: ci-only-better-auth-secret-that-is-long-enough
+      ACME_GRANT_SECRET: ci-only-grant-secret-that-is-long-enough
+      ACME_BOOTSTRAP_ADMIN_EMAIL: ci-admin@example.com
+      ACME_BOOTSTRAP_ADMIN_PASSWORD: ci-only-admin-password-long-enough
+      ACME_BOOTSTRAP_ADMIN_NAME: CI Administrator
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: acme
+          POSTGRES_USER: acme
+          POSTGRES_PASSWORD: acme
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U acme -d acme"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -30,6 +52,35 @@ jobs:
 
       - name: Verify
         run: npm run verify
+
+      - name: Apply migrations and bootstrap against PostgreSQL
+        run: |
+          npm run db:migrate
+          npm run db:migrate
+          npm run admin:bootstrap
+          npm run test:integration --if-present
+
+      - name: Build migration and bootstrap image
+        run: docker build --target tools -t acme-sponsor-kit-tools:ci .
+
+      - name: Verify migration image against PostgreSQL
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            acme-sponsor-kit-tools:ci \
+            ./node_modules/drizzle-kit/bin.cjs migrate
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            -e BETTER_AUTH_SECRET \
+            -e ACME_GRANT_SECRET \
+            -e ACME_BOOTSTRAP_ADMIN_EMAIL \
+            -e ACME_BOOTSTRAP_ADMIN_PASSWORD \
+            -e ACME_BOOTSTRAP_ADMIN_NAME \
+            acme-sponsor-kit-tools:ci \
+            --import tsx scripts/bootstrap-admin.ts
+
+      - name: Build runtime image
+        run: docker build --target runtime -t acme-sponsor-kit:ci .
 
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=moderate
