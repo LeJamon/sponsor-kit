@@ -47,7 +47,11 @@ describe.skipIf(!database)('console project creation', () => {
   const ids = {
     organization: randomUUID(),
     owner: randomUUID(),
+    admin: randomUUID(),
     developer: randomUUID(),
+    foreignOwner: randomUUID(),
+    foreignOrganization: randomUUID(),
+    suspendedOrganization: randomUUID(),
     sponsorAddress: `rProjectCreation${randomUUID().replaceAll('-', '').slice(0, 24)}`
   }
   let createProject: RouteHandler
@@ -64,6 +68,14 @@ describe.skipIf(!database)('console project creation', () => {
 
   function event(body: unknown): TestEvent {
     return { body, headers: { origin: 'http://localhost:3000' } }
+  }
+
+  function installRpcMock() {
+    routeMocks.xrplRpc.mockImplementation(async (_url: string, method: string) => {
+      if (method === 'account_info') return { account_data: { Balance: '1000000000' }, ledger_index: 1 }
+      if (method === 'server_state') return { state: { validated_ledger: { base_fee: '10', reserve_base: '10000000', reserve_inc: '2000000', seq: 1 } } }
+      throw new Error(`Unexpected RPC method ${method}`)
+    })
   }
 
   async function expectStatus(request: Promise<unknown>, statusCode: number) {
@@ -96,21 +108,26 @@ describe.skipIf(!database)('console project creation', () => {
     routeMocks.authGetSession.mockResolvedValue({ user: { id: ids.owner, email: `owner-${ids.owner}@example.invalid`, role: 'user' } })
     routeMocks.loadSponsorProtocolDefinitions.mockResolvedValue(protocol)
     routeMocks.parseDefinitionsHashAllowlist.mockReturnValue(undefined)
-    routeMocks.xrplRpc.mockImplementation(async (_url: string, method: string) => {
-      if (method === 'account_info') return { account_data: { Balance: '1000000000' }, ledger_index: 1 }
-      if (method === 'server_state') return { state: { validated_ledger: { base_fee: '10', reserve_base: '10000000', reserve_inc: '2000000', seq: 1 } } }
-      throw new Error(`Unexpected RPC method ${method}`)
-    })
-    process.env.ACME_XRPL_RPC_URL = 'http://test.invalid'
-    process.env.ACME_LOCAL_SPONSOR_ADDRESS = ids.sponsorAddress
+    installRpcMock()
+    vi.stubEnv('ACME_XRPL_RPC_URL', 'http://test.invalid')
+    vi.stubEnv('ACME_LOCAL_SPONSOR_ADDRESS', ids.sponsorAddress)
     await database.insert(user).values([
       { id: ids.owner, name: 'Project owner', email: `owner-${ids.owner}@example.invalid` },
-      { id: ids.developer, name: 'Project developer', email: `developer-${ids.developer}@example.invalid` }
+      { id: ids.admin, name: 'Project admin', email: `admin-${ids.admin}@example.invalid` },
+      { id: ids.developer, name: 'Project developer', email: `developer-${ids.developer}@example.invalid` },
+      { id: ids.foreignOwner, name: 'Foreign owner', email: `foreign-${ids.foreignOwner}@example.invalid` }
     ])
-    await database.insert(organizations).values({ id: ids.organization, name: 'Project creation test', slug: `project-creation-${ids.organization}` })
+    await database.insert(organizations).values([
+      { id: ids.organization, name: 'Project creation test', slug: `project-creation-${ids.organization}` },
+      { id: ids.foreignOrganization, name: 'Foreign organization', slug: `project-creation-foreign-${ids.foreignOrganization}` },
+      { id: ids.suspendedOrganization, name: 'Suspended organization', slug: `project-creation-suspended-${ids.suspendedOrganization}`, status: 'paused' }
+    ])
     await database.insert(organizationMemberships).values([
       { organizationId: ids.organization, userId: ids.owner, role: 'owner' },
-      { organizationId: ids.organization, userId: ids.developer, role: 'developer' }
+      { organizationId: ids.organization, userId: ids.admin, role: 'admin' },
+      { organizationId: ids.organization, userId: ids.developer, role: 'developer' },
+      { organizationId: ids.foreignOrganization, userId: ids.foreignOwner, role: 'owner' },
+      { organizationId: ids.suspendedOrganization, userId: ids.owner, role: 'owner' }
     ])
     createProject = (await import('../server/api/console/projects/index.post')).default as RouteHandler
   })
@@ -121,16 +138,18 @@ describe.skipIf(!database)('console project creation', () => {
     routeMocks.authGetSession.mockResolvedValue({ user: { id: ids.owner, email: `owner-${ids.owner}@example.invalid`, role: 'user' } })
     routeMocks.loadSponsorProtocolDefinitions.mockClear()
     routeMocks.xrplRpc.mockClear()
+    installRpcMock()
   })
 
   afterAll(async () => {
     if (!database || !client) return
     await cleanupProjects()
-    await database.delete(organizationMemberships).where(eq(organizationMemberships.organizationId, ids.organization))
-    await database.delete(organizations).where(eq(organizations.id, ids.organization))
-    await database.delete(user).where(inArray(user.id, [ids.owner, ids.developer]))
+    await database.delete(organizationMemberships).where(inArray(organizationMemberships.organizationId, [ids.organization, ids.foreignOrganization, ids.suspendedOrganization]))
+    await database.delete(organizations).where(inArray(organizations.id, [ids.organization, ids.foreignOrganization, ids.suspendedOrganization]))
+    await database.delete(user).where(inArray(user.id, [ids.owner, ids.admin, ids.developer, ids.foreignOwner]))
     await client.end()
     vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
   })
 
   it('creates a project with the shared sponsor and onboarding defaults', async () => {
@@ -156,10 +175,39 @@ describe.skipIf(!database)('console project creation', () => {
     expect(snapshot).toMatchObject({ network: 'devnet', networkId: 2, ledgerIndex: 1, endpointHealthy: true })
   })
 
+  it('requires an authenticated session', async () => {
+    if (!database) return
+    const databaseCalls = routeMocks.useDatabase.mock.calls.length
+    routeMocks.authGetSession.mockResolvedValue(null)
+    await expectStatus(createProject(event({ organizationId: ids.organization, name: 'Unauthenticated project', requestId: randomUUID() })), 401)
+    expect(routeMocks.useDatabase.mock.calls).toHaveLength(databaseCalls)
+  })
+
+  it('allows an active organization admin to create a project', async () => {
+    if (!database) return
+    routeMocks.authGetSession.mockResolvedValue({ user: { id: ids.admin, email: `admin-${ids.admin}@example.invalid`, role: 'user' } })
+    const request = event({ organizationId: ids.organization, name: 'Admin project', requestId: randomUUID() })
+    const response = await createProject(request) as { project: typeof projects.$inferSelect }
+    expect(request.status).toBe(201)
+    expect(response.project.name).toBe('Admin project')
+  })
+
   it('rejects members without organization administrator access', async () => {
     if (!database) return
     routeMocks.authGetSession.mockResolvedValue({ user: { id: ids.developer, email: `developer-${ids.developer}@example.invalid`, role: 'user' } })
     await expectStatus(createProject(event({ organizationId: ids.organization, name: 'Denied project', requestId: randomUUID() })), 403)
+    expect(routeMocks.loadSponsorProtocolDefinitions).not.toHaveBeenCalled()
+  })
+
+  it('rejects a request for an organization where the user is not a member', async () => {
+    if (!database) return
+    await expectStatus(createProject(event({ organizationId: ids.foreignOrganization, name: 'Foreign project', requestId: randomUUID() })), 403)
+    expect(routeMocks.loadSponsorProtocolDefinitions).not.toHaveBeenCalled()
+  })
+
+  it('rejects a suspended organization even for its owner', async () => {
+    if (!database) return
+    await expectStatus(createProject(event({ organizationId: ids.suspendedOrganization, name: 'Suspended project', requestId: randomUUID() })), 403)
     expect(routeMocks.loadSponsorProtocolDefinitions).not.toHaveBeenCalled()
   })
 
@@ -183,6 +231,11 @@ describe.skipIf(!database)('console project creation', () => {
     expect([201, 200]).toContain(secondEvent.status)
     const rows = await database.select().from(projects).where(and(eq(projects.organizationId, ids.organization), eq(projects.name, body.name)))
     expect(rows).toHaveLength(1)
+    routeMocks.xrplRpc.mockRejectedValue(new Error('XRPL unavailable'))
+    const retryEvent = event(body)
+    const retry = await createProject(retryEvent) as { project: typeof projects.$inferSelect }
+    expect(retryEvent.status).toBe(200)
+    expect(retry.project.id).toBe(results[0].project.id)
     await expectStatus(createProject(event({ ...body, name: 'Changed name' })), 409)
     const accounts = await database.select().from(sponsorAccounts).where(eq(sponsorAccounts.projectId, results[0].project.id))
     expect(accounts).toHaveLength(1)

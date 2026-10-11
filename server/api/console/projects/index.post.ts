@@ -20,28 +20,51 @@ export default defineEventHandler(async (event) => {
   if (!parsed.success) throw createError({ statusCode: 400, statusMessage: 'Invalid project request', data: parsed.error.flatten() })
 
   const database = useDatabase()
-  const [membership] = await database.select({ membership: organizationMemberships, organization: organizations })
-    .from(organizationMemberships)
-    .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
-    .where(and(
-      eq(organizationMemberships.organizationId, parsed.data.organizationId),
-      eq(organizationMemberships.userId, session.user.id),
-      eq(organizations.status, 'active')
-    )).limit(1)
-  if (!membership || !['owner', 'admin'].includes(membership.membership.role)) {
-    throw createError({ statusCode: 403, statusMessage: 'Organization administrator access required' })
+  const publicId = projectPublicIdForRequest({ userId: session.user.id, organizationId: parsed.data.organizationId, requestId: parsed.data.requestId })
+  const initial = await database.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`project-creation:${publicId}`}))`)
+    const [membership] = await tx.select({ membership: organizationMemberships, organization: organizations })
+      .from(organizationMemberships)
+      .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
+      .where(and(
+        eq(organizationMemberships.organizationId, parsed.data.organizationId),
+        eq(organizationMemberships.userId, session.user.id),
+        eq(organizations.status, 'active')
+      )).for('share').limit(1)
+    if (!membership || !['owner', 'admin'].includes(membership.membership.role)) {
+      throw createError({ statusCode: 403, statusMessage: 'Organization administrator access required' })
+    }
+    const [existingProject] = await tx.select().from(projects).where(eq(projects.publicId, publicId)).limit(1)
+    if (existingProject && (existingProject.organizationId !== parsed.data.organizationId || existingProject.name !== parsed.data.name)) {
+      throw createError({ statusCode: 409, statusMessage: 'Request ID was already used for a different project' })
+    }
+    return { existingProject: existingProject || null, organization: membership.organization }
+  })
+  if (initial.existingProject) {
+    setResponseStatus(event, 200)
+    return { project: initial.existingProject, organization: initial.organization }
   }
 
   const context = await loadProjectProvisioningContext()
-  const publicId = projectPublicIdForRequest({ userId: session.user.id, organizationId: parsed.data.organizationId, requestId: parsed.data.requestId })
   const result = await database.transaction(async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`project-creation:${publicId}`}))`)
-    const [existing] = await tx.select().from(projects).where(eq(projects.publicId, publicId)).limit(1)
-    if (existing) {
-      if (existing.organizationId !== parsed.data.organizationId || existing.name !== parsed.data.name) {
+    const [membership] = await tx.select({ membership: organizationMemberships, organization: organizations })
+      .from(organizationMemberships)
+      .innerJoin(organizations, eq(organizations.id, organizationMemberships.organizationId))
+      .where(and(
+        eq(organizationMemberships.organizationId, parsed.data.organizationId),
+        eq(organizationMemberships.userId, session.user.id),
+        eq(organizations.status, 'active')
+      )).for('share').limit(1)
+    if (!membership || !['owner', 'admin'].includes(membership.membership.role)) {
+      throw createError({ statusCode: 403, statusMessage: 'Organization administrator access required' })
+    }
+    const [existingProject] = await tx.select().from(projects).where(eq(projects.publicId, publicId)).limit(1)
+    if (existingProject) {
+      if (existingProject.organizationId !== parsed.data.organizationId || existingProject.name !== parsed.data.name) {
         throw createError({ statusCode: 409, statusMessage: 'Request ID was already used for a different project' })
       }
-      return { created: false, project: existing }
+      return { created: false, project: existingProject, organization: membership.organization }
     }
 
     const [project] = await tx.insert(projects).values({
@@ -54,8 +77,8 @@ export default defineEventHandler(async (event) => {
     }).returning()
     if (!project) throw new Error('Project creation failed')
     await provisionProject(tx, { projectId: project.id, publishedBy: session.user.id, context })
-    return { created: true, project }
+    return { created: true, project, organization: membership.organization }
   })
   setResponseStatus(event, result.created ? 201 : 200)
-  return { project: result.project, organization: membership.organization }
+  return { project: result.project, organization: result.organization }
 })
