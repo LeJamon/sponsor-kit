@@ -10,9 +10,8 @@ const scopeItems: Array<{ label: string, value: ApiKeyScope }> = [
   { label: 'Read intents', value: 'intents:read' },
   { label: 'Read usage', value: 'usage:read' }
 ]
-const { data: context } = await useFetch('/api/console/context')
-const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data: keys, status, error, refresh } = await useAsyncData('project-api-keys', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/api-keys`) : Promise.resolve([]), { watch: [projectId] })
+const { projectId } = await useConsoleProject()
+const { data: keys, status, error, refresh } = await useAsyncData(`project-api-keys-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/api-keys`) : Promise.resolve([]), { watch: [projectId] })
 const open = ref(false)
 const name = ref('')
 const scopes = ref<ApiKeyScope[]>(['intents:create', 'intents:read'])

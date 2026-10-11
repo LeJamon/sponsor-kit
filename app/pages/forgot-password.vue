@@ -9,7 +9,7 @@ const errorMessage = ref('')
 
 async function submit() {
   if (!config.value?.passwordResetEnabled) {
-    errorMessage.value = 'Password reset email is not configured for this environment. Contact the pilot administrator.'
+    errorMessage.value = 'Password reset email is not configured for this environment. Contact the administrator.'
     return
   }
   loading.value = true
@@ -49,7 +49,7 @@ async function submit() {
         class="mt-5"
         color="error"
         title="Password reset availability is unknown"
-        description="The environment did not return its email configuration. Try again later or contact the pilot administrator."
+        description="The environment did not return its email configuration. Try again later or contact the administrator."
       />
       <UAlert
         v-else-if="configStatus !== 'pending' && config?.passwordResetEnabled === false"
@@ -57,7 +57,7 @@ async function submit() {
         color="warning"
         variant="subtle"
         title="Password reset email is not configured"
-        description="This pilot cannot send reset links yet. Your account is unchanged; contact the administrator for recovery."
+        description="Password reset emails are not configured yet. Your account is unchanged; contact the administrator for recovery."
       />
       <UAlert
         v-if="sent"

@@ -124,6 +124,11 @@ The bootstrap requires `ACME_BOOTSTRAP_ADMIN_EMAIL` and
 `ACME_BOOTSTRAP_ADMIN_PASSWORD` (at least 16 characters) for a hosted database.
 The runtime image does not include migration tooling or automatically modify
 the database schema.
+Organization owners and admins can create additional projects from the console’s
+project dropdown. Each project has its own policies, API keys, and funding budget;
+projects share the configured sponsor treasury. The selected project and sidebar
+preference are remembered in the browser.
+
 After deployment, check `/api/v1/health` for database, signer, XRPL, and worker
 health. This endpoint checks external dependencies and should not be used as
 a container liveness probe.

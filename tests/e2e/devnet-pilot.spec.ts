@@ -107,9 +107,9 @@ test('an existing login can recover incomplete onboarding without duplicate proj
   await page.goto('/app/setup')
   await page.getByLabel('Organization name', { exact: true }).fill('Recovered workspace')
   await page.route('**/api/onboarding', route => route.fulfill({ status: 503, json: { statusMessage: 'Temporary Devnet outage' } }), { times: 1 })
-  await page.getByRole('button', { name: 'Create Devnet project', exact: true }).click()
+  await page.getByRole('button', { name: 'Create project', exact: true }).click()
   await expect(page.getByText('Setup needs another try', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Create Devnet project', exact: true }).click()
+  await page.getByRole('button', { name: 'Create project', exact: true }).click()
   await expect(page).toHaveURL(/\/app$/)
   const repeats = await Promise.all([1, 2].map(() => page.request.post('/api/onboarding', {
     headers: { origin: baseURL! }, data: { organizationName: 'Recovered workspace' }

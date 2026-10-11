@@ -1,5 +1,7 @@
 # Lessons
 
+- Use product language in the console rather than pilot branding. Project navigation must reflect the selected project throughout the app, and persistent status decorations should earn their space.
+
 - Keep the login form introduction to the requested direct heading; avoid repeated console labels and sponsorship descriptions around an already branded form.
 
 - Keep shared hero artwork on the same side across landing and authentication pages to preserve visual continuity when users navigate.

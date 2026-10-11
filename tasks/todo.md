@@ -1,5 +1,18 @@
 # ACME Sponsor Kit
 
+## Dashboard navigation and projects — 2026-10-11
+
+- [x] Add authenticated project creation with membership checks and complete sponsor/policy provisioning.
+- [x] Add shared project selection across console pages and a project dropdown with creation flow.
+- [x] Make desktop navigation collapsible; remove the status box and pilot wording.
+- [x] Verify project isolation, creation, switching, responsive navigation, lint, types, and build.
+
+### Review
+
+Implemented persistent sidebar collapse and project selection, with a project dropdown available at desktop and mobile sizes. All console pages now use the selected project, with separate data cache keys and page resets that keep in-flight actions scoped to their original project. Owners/admins can create projects with complete sponsor, policy, snapshot, and budget provisioning; retries are idempotent and existing results remain retrievable during network outages. Removed pilot branding and the status box while retaining factual network identifiers. No schema migration is required.
+
+Verification: lint, typecheck, production build, all 61 unit/API/database tests, and all 7 browser scenarios passed against a disposable local database. Browser coverage includes response-loss retry, remembered selection/collapse, selected-project requests across console pages, API-key isolation, mobile navigation, and existing login/payment/onboarding flows. Desktop/mobile screenshots reviewed. CI now runs the new database integration tests.
+
 ## Login copy simplification — 2026-10-11
 
 - [x] Use “Log in to ACME” and remove the requested form and artwork descriptions.

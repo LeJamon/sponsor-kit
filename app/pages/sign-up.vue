@@ -67,7 +67,7 @@ async function submit() {
         color="warning"
         variant="subtle"
         title="Setup can be resumed"
-        description="If sign-up completed, sign in and open setup to retry the one-project Devnet configuration without creating another account."
+        description="If sign-up completed, sign in and open setup to finish setting up your workspace without creating another account."
       >
         <template #actions>
           <div class="flex flex-wrap gap-2">
@@ -129,7 +129,7 @@ async function submit() {
         </UFormField><UCheckbox
           v-model="form.terms"
           required
-          label="I understand this is a disposable Devnet pilot wallet and I will not use real funds"
+          label="I understand this is a disposable Devnet wallet and I will not use real funds"
           class="sm:col-span-2"
         /><UButton
           type="submit"

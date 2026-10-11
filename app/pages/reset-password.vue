@@ -13,7 +13,7 @@ const errorMessage = ref(typeof route.query.error === 'string' ? 'This reset lin
 async function submit() {
   errorMessage.value = ''
   if (!config.value?.passwordResetEnabled) {
-    errorMessage.value = 'Password reset is not configured for this environment. Contact the pilot administrator.'
+    errorMessage.value = 'Password reset is not configured for this environment. Contact the administrator.'
     return
   }
   if (!token.value) {
@@ -57,7 +57,7 @@ async function submit() {
         class="mt-5"
         color="error"
         title="Password reset availability is unknown"
-        description="The environment did not return its email configuration. Try again later or contact the pilot administrator."
+        description="The environment did not return its email configuration. Try again later or contact the administrator."
       />
       <UAlert
         v-else-if="configStatus !== 'pending' && config?.passwordResetEnabled === false"
@@ -65,7 +65,7 @@ async function submit() {
         color="warning"
         variant="subtle"
         title="Password reset is not configured"
-        description="Contact the pilot administrator for recovery."
+        description="Contact the administrator for recovery."
       />
       <UAlert
         v-if="errorMessage"

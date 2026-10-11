@@ -4,9 +4,8 @@ import { formatDateTime, formatDropsAsXrp, shortenAddress } from '~/utils/format
 const requestFetch = useRequestFetch()
 
 definePageMeta({ layout: 'dashboard' })
-const { data: context } = await useFetch('/api/console/context')
-const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data, status, error, refresh } = await useAsyncData('project-overview', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/overview`) : Promise.resolve(null), { watch: [projectId] })
+const { data: context, projectId } = await useConsoleProject()
+const { data, status, error, refresh } = await useAsyncData(`project-overview-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/overview`) : Promise.resolve(null), { watch: [projectId] })
 const { data: readiness, error: readinessError, refresh: refreshReadiness } = await useFetch<{ ready: boolean }>('/api/console/readiness')
 </script>
 
@@ -29,7 +28,7 @@ const { data: readiness, error: readinessError, refresh: refreshReadiness } = aw
       color="warning"
       variant="subtle"
       icon="i-lucide-panels-top-left"
-      title="Finish setting up your one-project Devnet pilot"
+      title="Finish setting up your project"
       description="Create the authenticated project and run live network readiness checks before using the sponsorship flow."
     >
       <template #actions>
@@ -123,7 +122,7 @@ const { data: readiness, error: readinessError, refresh: refreshReadiness } = aw
         <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#D9E5F7] px-5 py-4">
           <div>
             <p class="acme-kicker">
-              Self-service pilot
+              Get started
             </p>
             <h2 class="mt-1 font-semibold">
               Make a real sponsored Devnet payment

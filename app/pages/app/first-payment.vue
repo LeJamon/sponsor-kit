@@ -7,7 +7,6 @@ const requestFetch = useRequestFetch()
 
 definePageMeta({ layout: 'dashboard' })
 
-type Context = { projects?: Array<{ project: { publicId: string, name: string, network: string } }> }
 type Readiness = { ready: boolean, checks: Array<{ key: string, label: string, ok: boolean, detail: string }> }
 type Protocol = { network: 'devnet', networkId: number, definitionsHash: string, definitions: RawXrplDefinitions }
 type FundResult = { account: string, funded: boolean, pending: boolean, balanceDrops: string | null, ledgerIndex: number | null }
@@ -31,10 +30,9 @@ type IntentDetail = Intent & {
 }
 
 const terminalStates = new Set(['validated', 'failed', 'rejected', 'expired', 'cancelled', 'superseded'])
-const context = await useFetch<Context>('/api/console/context')
-const projectId = computed(() => context.data.value?.projects?.[0]?.project.publicId)
+const { projectId } = await useConsoleProject()
 const { data: readiness, status: readinessStatus, error: readinessError, refresh: refreshReadiness } = await useFetch<Readiness>('/api/console/readiness')
-const { data: protocol, status: protocolStatus, error: protocolError } = await useAsyncData<Protocol | null>('devnet-protocol', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/protocol`) : Promise.resolve(null), { watch: [projectId] })
+const { data: protocol, status: protocolStatus, error: protocolError } = await useAsyncData<Protocol | null>(`devnet-protocol-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/protocol`) : Promise.resolve(null), { watch: [projectId] })
 
 const wallet = ref<DisposableWallet | null>(null)
 const fundResult = ref<FundResult | null>(null)
@@ -413,7 +411,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="mx-auto max-w-5xl">
     <ConsolePageHeader
-      eyebrow="Guided Devnet pilot"
+      eyebrow="Guided payment"
       title="Make your first sponsored payment"
       description="Create a disposable Devnet wallet, review the exact Payment, sign it in this browser, and watch the validated ledger confirm it."
     >
@@ -551,7 +549,7 @@ onBeforeUnmount(() => {
               <UIcon
                 name="i-lucide-check"
                 class="mt-0.5 size-4 shrink-0 text-emerald-600"
-              />Only Devnet accounts are supported in this pilot.
+              />Only Devnet accounts are supported.
             </li>
           </ul>
         </div>

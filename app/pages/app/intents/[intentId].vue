@@ -30,9 +30,8 @@ type IntentDetail = {
 const route = useRoute()
 const intentId = computed(() => String(route.params.intentId || ''))
 const terminalStates = new Set(['validated', 'failed', 'rejected', 'expired', 'cancelled', 'superseded'])
-const { data: context } = await useFetch<{ projects?: Array<{ project: { publicId: string } }> }>('/api/console/context')
-const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data: intent, status, error, refresh } = await useAsyncData<IntentDetail | null>(`intent-detail-${intentId.value}`, () => projectId.value && intentId.value
+const { projectId } = await useConsoleProject()
+const { data: intent, status, error, refresh } = await useAsyncData<IntentDetail | null>(`intent-detail-${projectId.value}-${intentId.value}`, () => projectId.value && intentId.value
   ? requestFetch(`/api/console/projects/${projectId.value}/intents/${encodeURIComponent(intentId.value)}`)
   : Promise.resolve(null), { watch: [projectId] })
 

@@ -11,15 +11,14 @@ type FundingData = {
   usage?: { feeReservedDrops: string, feeSpentDrops: string, reserveReservedDrops: string, reserveExposureDrops: string }
   entries: Array<{ id: string, type: string, intentId?: string | null, feeDrops: string, reserveDrops: string, createdAt: string }>
 }
-const { data: context } = await useFetch('/api/console/context')
-const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
-const { data, status, error, refresh } = await useAsyncData<FundingData | null>('project-funding', () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/funding`) : Promise.resolve(null), { watch: [projectId] })
+const { selected, projectId } = await useConsoleProject()
+const { data, status, error, refresh } = await useAsyncData<FundingData | null>(`project-funding-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/funding`) : Promise.resolve(null), { watch: [projectId] })
 const copied = ref(false)
 const budgetOpen = ref(false)
 const budgetSaving = ref(false)
 const budgetError = ref('')
 const budgetForm = reactive({ feeBudgetDrops: '', reserveBudgetDrops: '', walletFeeQuotaDrops: '', walletReserveQuotaDrops: '', quotaPeriodSeconds: 86_400 })
-const canManageBudget = computed(() => ['owner', 'admin'].includes(context.value?.projects?.[0]?.role || ''))
+const canManageBudget = computed(() => ['owner', 'admin'].includes(selected.value?.role || ''))
 
 watch(data, (value) => {
   if (!value?.limits) return

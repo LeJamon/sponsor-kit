@@ -8,8 +8,7 @@ type PreparedIntent = { id: string, state: string, transaction: Record<string, u
 
 const route = useRoute()
 const router = useRouter()
-const { data: context } = await useFetch('/api/console/context')
-const projectId = computed(() => context.value?.projects?.[0]?.project.publicId)
+const { projectId } = await useConsoleProject()
 const address = ref('')
 const plan = ref<Plan | null>(null)
 const selected = ref<string[]>([])

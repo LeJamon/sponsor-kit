@@ -17,6 +17,8 @@ useHead({
 
 const title = 'ACME — XRPL sponsorship infrastructure'
 const description = 'Policy-controlled fee and reserve sponsorship for XRPL applications.'
+const { selectedId } = useProjectSelection()
+const pageKey = route => route.path.startsWith('/app') ? `${route.path}:${selectedId.value || ''}` : route.path
 
 useSeoMeta({
   title,
@@ -30,7 +32,7 @@ useSeoMeta({
 <template>
   <UApp>
     <NuxtLayout>
-      <NuxtPage />
+      <NuxtPage :page-key="pageKey" />
     </NuxtLayout>
   </UApp>
 </template>

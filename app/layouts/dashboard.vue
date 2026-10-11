@@ -4,9 +4,9 @@ import { authClient } from '~~/lib/auth-client'
 const route = useRoute()
 const open = ref(false)
 const signingOut = ref(false)
-const { data: context } = await useFetch('/api/console/context')
-const { data: health } = await useFetch('/api/v1/health', { server: false })
-const selected = computed(() => context.value?.projects?.[0])
+const collapsed = useCookie('acme-sidebar-collapsed', { default: () => false, sameSite: 'lax', maxAge: 60 * 60 * 24 * 365 })
+const { data: context } = await useConsoleProject()
+const { selectProject } = useProjectSelection()
 
 const baseNavigation = [
   { label: 'Overview', icon: 'i-lucide-layout-dashboard', to: '/app' },
@@ -19,7 +19,6 @@ const baseNavigation = [
 ]
 const navigation = computed(() => context.value?.user.platformAdmin ? [...baseNavigation, { label: 'Admin', icon: 'i-lucide-settings-2', to: '/admin' }] : baseNavigation)
 const initials = computed(() => (context.value?.user.name || context.value?.user.email || 'User').split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase())
-const systemsHealthy = computed(() => health.value?.status === 'ok')
 
 function isActive(to: string) {
   return to === '/app' ? route.path === to : route.path.startsWith(to)
@@ -28,32 +27,30 @@ function isActive(to: string) {
 async function signOut() {
   signingOut.value = true
   await authClient.signOut()
+  selectProject(null)
+  clearNuxtData('console-context')
   await navigateTo('/sign-in')
 }
 </script>
 
 <template>
   <div class="min-h-screen bg-[#F7FAFF]">
-    <aside class="fixed inset-y-0 left-0 z-40 hidden w-66 border-r border-[#D9E5F7] bg-white p-5 lg:block">
-      <NuxtLink to="/app"><AppLogo /></NuxtLink>
-      <div class="mt-7 rounded-xl border border-[#D9E5F7] bg-[#F7FAFF] p-3">
-        <p class="text-xs font-medium text-[#62789C]">
-          DEVNET PILOT
-        </p>
-        <p class="mt-1.5 text-sm font-semibold text-[#10244A]">
-          {{ selected ? selected.project.name : 'Setup required' }}
-        </p>
-        <div class="mt-2 flex gap-2">
-          <UBadge
-            label="Devnet"
-            color="primary"
-            variant="subtle"
-          /><UBadge
-            label="One project"
-            color="neutral"
-            variant="subtle"
-          />
-        </div>
+    <aside
+      v-if="!collapsed"
+      id="desktop-navigation"
+      class="fixed inset-y-0 left-0 z-40 hidden w-66 overflow-y-auto border-r border-[#D9E5F7] bg-white p-5 lg:block"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <NuxtLink to="/app"><AppLogo /></NuxtLink>
+        <UButton
+          icon="i-lucide-panel-left-close"
+          aria-label="Collapse sidebar"
+          aria-controls="desktop-navigation"
+          :aria-expanded="true"
+          color="neutral"
+          variant="ghost"
+          @click="collapsed = true"
+        />
       </div>
       <nav
         aria-label="Console navigation"
@@ -72,31 +69,11 @@ async function signOut() {
           />{{ item.label }}
         </NuxtLink>
       </nav>
-      <div
-        class="absolute inset-x-5 bottom-5 rounded-xl border p-3 text-sm"
-        :class="systemsHealthy ? 'border-emerald-100 bg-emerald-50' : 'border-amber-100 bg-amber-50'"
-      >
-        <div
-          class="flex items-center gap-2 font-semibold"
-          :class="systemsHealthy ? 'text-emerald-800' : 'text-amber-800'"
-        >
-          <span
-            class="size-2 rounded-full"
-            :class="systemsHealthy ? 'bg-emerald-500' : 'bg-amber-500'"
-          />{{ systemsHealthy ? 'Systems operational' : 'System status unavailable' }}
-        </div>
-        <p
-          class="mt-1 text-xs"
-          :class="systemsHealthy ? 'text-emerald-700' : 'text-amber-700'"
-        >
-          {{ systemsHealthy ? 'Database, Devnet RPC, and signer healthy' : 'Open status for current checks' }}
-        </p>
-      </div>
     </aside>
 
-    <div class="lg:pl-66">
+    <div :class="{ 'lg:pl-66': !collapsed }">
       <header class="sticky top-0 z-30 flex h-18 items-center justify-between border-b border-[#D9E5F7] bg-white/90 px-5 backdrop-blur lg:px-8">
-        <div class="flex items-center gap-3">
+        <div class="flex min-w-0 items-center gap-2 sm:gap-3">
           <UButton
             icon="i-lucide-menu"
             aria-label="Open navigation"
@@ -105,15 +82,20 @@ async function signOut() {
             class="lg:hidden"
             @click="open = true"
           />
-          <div>
-            <p class="text-xs font-medium text-[#62789C]">
-              DEVNET PILOT
-            </p><p class="text-sm font-semibold">
-              {{ selected ? selected.project.name : 'Setup required' }}
-            </p>
-          </div>
+          <UButton
+            v-if="collapsed"
+            icon="i-lucide-panel-left-open"
+            aria-label="Expand sidebar"
+            aria-controls="desktop-navigation"
+            :aria-expanded="false"
+            color="neutral"
+            variant="ghost"
+            class="hidden lg:inline-flex"
+            @click="collapsed = false"
+          />
+          <ProjectSwitcher />
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex shrink-0 items-center gap-2">
           <UButton
             to="/docs"
             icon="i-lucide-book-open"

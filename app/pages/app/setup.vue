@@ -4,7 +4,7 @@ definePageMeta({ layout: 'dashboard' })
 type ReadinessCheck = { key: string, label: string, ok: boolean, detail: string }
 type Readiness = { ready: boolean, checks: ReadinessCheck[] }
 
-const { data: context, status: contextStatus, error: contextError, refresh: refreshContext } = await useFetch('/api/console/context')
+const { data: context, selected: project, status: contextStatus, error: contextError, refresh: refreshContext, selectProject } = await useConsoleProject()
 const { data: readiness, status: readinessStatus, error: readinessError, refresh: refreshReadiness } = await useFetch<Readiness>('/api/console/readiness')
 const form = reactive({ organizationName: '' })
 const saving = ref(false)
@@ -13,12 +13,11 @@ const successMessage = ref('')
 
 watchEffect(() => {
   if (!form.organizationName && context.value?.user?.name) {
-    form.organizationName = `${context.value.user.name}'s Devnet`
+    form.organizationName = `${context.value.user.name}'s workspace`
   }
 })
 
-const hasProject = computed(() => Boolean(context.value?.onboarded && context.value?.projects?.[0]))
-const project = computed(() => context.value?.projects?.[0])
+const hasProject = computed(() => Boolean(project.value))
 
 function requestMessage(error: unknown, fallback: string) {
   if (error && typeof error === 'object' && 'data' in error && error.data && typeof error.data === 'object' && 'statusMessage' in error.data) {
@@ -33,12 +32,13 @@ async function setupProject() {
   errorMessage.value = ''
   successMessage.value = ''
   try {
-    await $fetch('/api/onboarding', {
+    const result = await $fetch('/api/onboarding', {
       method: 'POST',
       body: { organizationName: form.organizationName.trim() }
     })
-    successMessage.value = 'Your Devnet project is ready.'
+    successMessage.value = 'Your project is ready.'
     await Promise.all([refreshContext(), refreshReadiness()])
+    selectProject(result.project.publicId)
     await navigateTo('/app')
   } catch (error: unknown) {
     // Onboarding is idempotent. A timeout can still mean that another request
@@ -64,8 +64,8 @@ async function retryChecks() {
   <div class="mx-auto max-w-5xl">
     <ConsolePageHeader
       eyebrow="Workspace setup"
-      :title="hasProject ? 'Your Devnet pilot setup' : 'Finish your Devnet pilot setup'"
-      :description="hasProject ? 'ACME currently supports one project per workspace. This is the project your team will use for the pilot.' : 'Create the one Devnet project included in this pilot. You can safely retry this step if the network or service is temporarily unavailable.'"
+      :title="hasProject ? 'Project setup' : 'Create your first project'"
+      :description="hasProject ? 'Review your project and its sponsorship readiness.' : 'Set up your workspace to start sponsoring transactions.'"
     >
       <UButton
         v-if="hasProject"
@@ -119,7 +119,7 @@ async function retryChecks() {
         <UFormField
           label="Organization name"
           name="organizationName"
-          help="Use a short name your team will recognize in the pilot."
+          help="Use a short name your team will recognize."
         >
           <UInput
             id="setup-organization"
@@ -146,7 +146,7 @@ async function retryChecks() {
         <div class="flex flex-wrap items-center gap-3">
           <UButton
             type="submit"
-            label="Create Devnet project"
+            label="Create project"
             trailing-icon="i-lucide-arrow-right"
             :loading="saving"
             :disabled="form.organizationName.trim().length < 2"
@@ -167,7 +167,7 @@ async function retryChecks() {
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p class="text-xs font-semibold uppercase tracking-[0.14em] text-[#62789C]">
-              Pilot project
+              Project
             </p>
             <h2 class="mt-2 text-xl font-semibold">
               {{ project?.project.name }}
@@ -180,11 +180,6 @@ async function retryChecks() {
             <UBadge
               label="Devnet"
               color="primary"
-              variant="subtle"
-            />
-            <UBadge
-              label="One project"
-              color="neutral"
               variant="subtle"
             />
           </div>
