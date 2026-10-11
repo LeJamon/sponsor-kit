@@ -45,6 +45,62 @@ are not required during `docker build`. `ACME_XRPL_RPC_URL` is read at request
 time by the public network endpoint, so changing it does not require baking a
 new image.
 
+### Social login and company SSO
+
+Social login providers are configured at runtime. Set both values in each pair
+to enable Google or GitHub; an incomplete pair leaves that provider disabled
+without affecting password login:
+
+```text
+ACME_GOOGLE_CLIENT_ID=...
+ACME_GOOGLE_CLIENT_SECRET=...
+ACME_GITHUB_CLIENT_ID=...
+ACME_GITHUB_CLIENT_SECRET=...
+```
+
+Register these exact callback URLs in the provider dashboards, using the
+origin from `NUXT_PUBLIC_APP_URL`:
+
+```text
+https://your-public-host.example/api/auth/callback/google
+https://your-public-host.example/api/auth/callback/github
+```
+
+For company login, ACME accepts OIDC discovery metadata (SAML is not
+supported). Set all three values to enable the fixed `company-sso` provider;
+`ACME_SSO_LABEL` is optional and defaults to `Company SSO`:
+
+```text
+ACME_SSO_DISCOVERY_URL=https://idp.example.com/.well-known/openid-configuration
+ACME_SSO_CLIENT_ID=...
+ACME_SSO_CLIENT_SECRET=...
+ACME_SSO_LABEL=Company SSO
+```
+
+Register this callback URL with the identity provider:
+
+```text
+https://your-public-host.example/api/auth/callback/company-sso
+```
+
+The discovery URL must use HTTPS. HTTP is accepted only for an explicitly
+enabled development/test loopback endpoint with
+`ACME_SSO_ALLOW_INSECURE_HTTP=true`; do not enable that setting in production.
+The OIDC flow requests `openid profile email`, uses PKCE, and requires a
+verified ID token. Provider logout is disabled so the application's existing
+logout flow remains authoritative. Better Auth OAuth tokens are encrypted with
+`BETTER_AUTH_SECRET`; keep that secret stable when rotating or redeploying so
+existing linked sessions and tokens remain usable. Runtime credentials are
+never included in the public auth configuration response, and enabling these
+providers requires no database migration.
+
+An existing password account with the same email is not implicitly linked to a
+social or SSO account. The user must authenticate to the existing account and
+explicitly link another provider. Provider sign-in may create a new local user
+when no matching account exists; company domain or token claims do not assign
+organizations or roles, because normal onboarding remains responsible for
+that decision.
+
 Password reset delivery is disabled unless a sender and one complete provider
 configuration are present. For a generic HTTP mail service set
 `ACME_PASSWORD_RESET_EMAIL_PROVIDER=http`,
