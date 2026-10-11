@@ -1,5 +1,18 @@
 # ACME Sponsor Kit
 
+## Console redesign — 2026-10-11
+
+- [x] Consolidate Sponsorship into Policies and Usage; use a full-page policy editor with real controls and clear save behavior.
+- [x] Add project-scoped usage metrics and history, with explicit periods and separate fee spend / reserve exposure.
+- [x] Simplify console navigation, overview, tables, forms, and empty states; remove the First payment flow and its dedicated helpers.
+- [x] Verify authorization, policy mutations, usage accounting, project isolation, desktop/mobile layouts, and required checks.
+
+### Review
+
+Implemented a concise light console with Sponsorship / Policies / Usage, full-page policy creation and version editing, exact XRP limits, access rules, status actions, and archive confirmation. Serialized policy publication and activation under a project lock; retained immutable policy documents. Usage uses persisted outcomes and captured fees over explicit trailing periods, with current reserve exposure reported separately. Transaction pagination preserves timestamp precision and handles tied timestamps. Removed First payment, its browser wallet helper, and its dedicated faucet route; public integration APIs remain available.
+
+Simplified overview, transaction tables, funding, API keys, and reserve migration while preserving the hover sidebar, project selector/modal, and overview Danger zone. No schema migration is needed. Verified lint, typecheck, production build, 74 unit/API/database tests, and all 10 Chromium scenarios against a disposable local database and loopback XRPL fixture. Browser coverage includes project isolation/lifecycle, policy creation and immutable versions, invalid limits/destinations, concurrent publication/activation, API-key revocation, signed payment authorization/replay, usage totals, and mobile overflow. Reviewed desktop/mobile screenshots; chart labels resize with their containers.
+
 ## Project creation modal and deletion — 2026-10-11
 
 - [x] Replace standalone creation forms with a light modal for project name and Devnet network, including first/last-project flows.

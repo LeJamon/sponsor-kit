@@ -1,225 +1,244 @@
 <script setup lang="ts">
-import { formatDateTime, formatDropsAsXrp, shortenAddress } from '~/utils/format'
+import { formatDropsAsXrp } from '~/utils/format'
 
 const requestFetch = useRequestFetch()
-
 definePageMeta({ layout: 'dashboard' })
 const createOpen = useState('project-creation-open', () => false)
-const { data: context, projectId } = await useConsoleProject()
-const { data, status, error, refresh } = await useAsyncData(`project-overview-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/overview`) : Promise.resolve(null), { watch: [projectId] })
-const { data: readiness, error: readinessError, refresh: refreshReadiness } = await useFetch<{ ready: boolean }>('/api/console/readiness')
+const { selected, projectId, error: contextError, refresh: refreshContext } = await useConsoleProject()
+const range = ref('7d')
+const ranges = [{ label: 'Last 24 hours', value: '24h' }, { label: 'Last 7 days', value: '7d' }, { label: 'Last 30 days', value: '30d' }]
+const rangeLabel = computed(() => ranges.find(item => item.value === range.value)?.label)
+const { data: usage, status, error, refresh } = await useAsyncData(`project-overview-usage-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/usage`, { query: { range: range.value } }) : Promise.resolve(null), { watch: [range] })
+const { data: recent, error: recentError, refresh: refreshRecent } = await useAsyncData(`project-overview-recent-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/intents`, { query: { limit: 5 } }) : Promise.resolve(null))
+const { data: readiness, error: readinessError } = await useFetch<{ ready: boolean }>('/api/console/readiness')
+const toast = useToast()
+async function copyProjectId() {
+  if (!projectId.value) return
+  try {
+    await navigator.clipboard.writeText(projectId.value)
+    toast.add({ title: 'Project ID copied', icon: 'i-lucide-check', color: 'success' })
+  } catch {
+    toast.add({ title: 'Could not copy project ID', description: projectId.value, color: 'error' })
+  }
+}
 </script>
 
 <template>
   <div>
-    <ConsolePageHeader
-      eyebrow="Developer console"
-      :title="data ? `${data.project.name} overview` : 'Project overview'"
-      description="Validated Devnet activity, sponsor capacity, and recent intents from the backend."
-    >
-      <UButton
-        v-if="projectId"
-        to="/app/first-payment"
-        label="Make first payment"
-        icon="i-lucide-send"
-        color="primary"
-      />
-    </ConsolePageHeader>
-    <UAlert
-      v-if="!context?.projects?.length"
-      color="warning"
-      variant="subtle"
-      icon="i-lucide-panels-top-left"
-      title="Create your first project"
-      description="Choose a name and network to start sponsoring transactions."
-    >
-      <template #actions>
+    <ConsolePageHeader :title="selected?.project.name || 'Overview'">
+      <template v-if="projectId">
         <UButton
-          label="Create project"
-          color="warning"
-          variant="soft"
-          @click="createOpen = true"
+          label="Copy project ID"
+          icon="i-lucide-copy"
+          color="neutral"
+          variant="outline"
+          @click="copyProjectId"
+        />
+        <USelect
+          v-model="range"
+          :items="ranges"
+          aria-label="Overview period"
+          class="min-w-36"
         />
       </template>
-    </UAlert>
+    </ConsolePageHeader>
     <UAlert
-      v-if="error"
+      v-if="contextError"
+      title="Could not load projects"
       color="error"
-      variant="subtle"
-      title="Project data is unavailable"
-      :description="error.message"
+      class="mb-6"
     >
       <template #actions>
         <UButton
           label="Retry"
-          @click="refresh()"
+          color="error"
+          variant="soft"
+          @click="refreshContext()"
         />
       </template>
     </UAlert>
-    <div
-      v-else-if="status === 'pending'"
-      class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+    <section
+      v-else-if="!projectId"
+      class="acme-card px-6 py-16 text-center"
     >
-      <USkeleton
-        v-for="index in 4"
-        :key="index"
-        class="h-36 rounded-2xl"
+      <h2 class="text-lg font-semibold">
+        No projects yet
+      </h2>
+      <UButton
+        class="mt-5"
+        label="Create project"
+        icon="i-lucide-plus"
+        @click="createOpen = true"
       />
-    </div>
-    <template v-else-if="data">
-      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Validated intents"
-          :value="String(data.metrics.validated)"
-          detail="Confirmed on Devnet"
-          icon="i-lucide-circle-check"
-          tone="success"
-        />
-        <MetricCard
-          label="Pending intents"
-          :value="String(data.metrics.pending)"
-          detail="Awaiting authorization or validation"
-          icon="i-lucide-clock-3"
-          :tone="data.metrics.pending ? 'warning' : 'success'"
-        />
-        <MetricCard
-          label="Available sponsor capacity"
-          :value="formatDropsAsXrp(data.funding?.availableDrops)"
-          detail="After reserve, safety buffer, and pending exposure"
-          icon="i-lucide-landmark"
-        />
-        <MetricCard
-          label="Locked reserve"
-          :value="formatDropsAsXrp(data.funding?.lockedReserveDrops)"
-          :detail="`${formatDropsAsXrp(data.funding?.pendingReserveDrops)} pending`"
-          icon="i-lucide-anchor"
-        />
-      </div>
+    </section>
+    <template v-else>
       <UAlert
         v-if="readinessError || readiness?.ready === false"
-        class="mt-6"
+        title="Sponsorship unavailable"
         color="warning"
         variant="subtle"
-        icon="i-lucide-triangle-alert"
-        title="Sponsorship is waiting on network readiness"
-        :description="readinessError?.message || 'One or more live Devnet checks need attention before a new intent can be created.'"
+        class="mb-6"
       >
         <template #actions>
-          <div class="flex flex-wrap gap-2">
-            <UButton
-              to="/app/setup"
-              label="Review checks"
-              color="warning"
-              variant="soft"
-            /><UButton
-              label="Refresh"
-              color="warning"
-              variant="ghost"
-              @click="() => refreshReadiness()"
-            />
-          </div>
-        </template>
-      </UAlert>
-      <section class="acme-card mt-6 overflow-hidden">
-        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-[#D9E5F7] px-5 py-4">
-          <div>
-            <p class="acme-kicker">
-              Get started
-            </p>
-            <h2 class="mt-1 font-semibold">
-              Make a real sponsored Devnet payment
-            </h2>
-            <p class="mt-1 text-xs text-[#62789C]">
-              Use a disposable browser wallet, review the canonical transaction, and watch validated finality.
-            </p>
-          </div>
           <UButton
-            to="/app/first-payment"
-            label="Start guided payment"
+            to="/app/setup"
+            label="Review checks"
+            color="warning"
+            variant="soft"
             trailing-icon="i-lucide-arrow-right"
           />
+        </template>
+      </UAlert>
+      <UAlert
+        v-if="error"
+        title="Could not load usage"
+        :description="error.message"
+        color="error"
+        class="mb-6"
+      >
+        <template #actions>
+          <UButton
+            label="Retry"
+            color="error"
+            variant="soft"
+            @click="refresh()"
+          />
+        </template>
+      </UAlert>
+      <div
+        v-else-if="status === 'pending' && !usage"
+        class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+      >
+        <USkeleton
+          v-for="index in 4"
+          :key="index"
+          class="h-40 rounded-xl"
+        />
+      </div>
+      <template v-else-if="usage">
+        <div
+          class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
+          :aria-busy="status === 'pending'"
+        >
+          <MetricCard
+            label="Sponsored transactions"
+            :value="String(usage.totals.validated)"
+            :detail="rangeLabel"
+          />
+          <MetricCard
+            label="Success rate"
+            :value="usage.totals.successRate == null ? '—' : `${usage.totals.successRate.toFixed(1)}%`"
+            :detail="rangeLabel"
+          />
+          <MetricCard
+            label="Fees spent"
+            :value="formatDropsAsXrp(usage.totals.feeSpentDrops)"
+            :detail="rangeLabel"
+          />
+          <MetricCard
+            label="Reserves locked"
+            :value="formatDropsAsXrp(usage.reserves.lockedDrops)"
+            detail="Current"
+          />
         </div>
-        <div class="grid gap-3 px-5 py-4 text-sm sm:grid-cols-3">
-          <div class="flex items-center gap-2">
-            <UIcon
-              name="i-lucide-wallet-cards"
-              class="size-4 text-[#0A3DFF]"
-            /><span>Disposable wallet stays in memory</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <UIcon
-              name="i-lucide-file-check-2"
-              class="size-4 text-[#0A3DFF]"
-            /><span>Exact fields shown before signing</span>
-          </div>
-          <div class="flex items-center gap-2">
-            <UIcon
-              name="i-lucide-activity"
-              class="size-4 text-[#0A3DFF]"
-            /><span>Live finality updates</span>
-          </div>
-        </div>
-      </section>
-      <section class="acme-card mt-6 overflow-hidden">
-        <div class="flex items-center justify-between border-b border-[#D9E5F7] px-5 py-4">
-          <div>
+        <section class="acme-card mt-6 overflow-hidden">
+          <div class="flex items-center justify-between gap-3 border-b border-[#E2E8F0] px-5 py-4">
             <h2 class="font-semibold">
-              Recent intents
-            </h2><p class="text-xs text-[#62789C]">
-              Durable sponsorship state
-            </p>
-          </div><UButton
-            to="/app/intents"
-            label="View all"
+              Activity
+            </h2>
+            <UButton
+              to="/app/sponsorship/usage"
+              label="View usage"
+              trailing-icon="i-lucide-arrow-right"
+              color="neutral"
+              variant="ghost"
+            />
+          </div>
+          <div class="p-5">
+            <UsageChart
+              :series="usage.series"
+              :range="usage.period.range"
+            />
+          </div>
+        </section>
+      </template>
+      <section
+        v-if="recent && !recent.items.length"
+        class="acme-card mt-6 flex flex-wrap items-center justify-between gap-4 px-5 py-4"
+      >
+        <h2 class="font-semibold">
+          Get started
+        </h2>
+        <div class="flex flex-wrap gap-2">
+          <UButton
+            to="/app/api-keys"
+            label="Create API key"
+            icon="i-lucide-key-round"
+            color="neutral"
+            variant="outline"
+          />
+          <UButton
+            to="/app/sponsorship"
+            label="Configure sponsorship"
+            color="neutral"
+            variant="outline"
+          />
+          <UButton
+            to="/docs"
+            label="Integration guide"
+            trailing-icon="i-lucide-arrow-up-right"
             color="neutral"
             variant="ghost"
           />
         </div>
-        <div
-          v-if="data.recentIntents.length"
-          class="divide-y divide-[#E9F0FA]"
-        >
-          <div
-            v-for="intent in data.recentIntents"
-            :key="intent.id"
-            class="grid items-center gap-3 px-5 py-4 text-sm md:grid-cols-[1.1fr_1fr_1fr_auto_auto]"
-          >
-            <span class="font-mono text-xs">{{ intent.id }}</span><span>{{ shortenAddress(intent.accountAddress) }}</span><span>{{ intent.canonicalTransaction.TransactionType }}</span><IntentStatus :status="intent.state" /><span class="text-xs text-[#62789C]">{{ formatDateTime(intent.createdAt) }}</span>
-          </div>
+      </section>
+      <section class="acme-card mt-6 overflow-hidden">
+        <div class="flex items-center justify-between border-b border-[#E2E8F0] px-5 py-4">
+          <h2 class="font-semibold">
+            Recent transactions
+          </h2>
+          <UButton
+            to="/app/intents"
+            label="View all"
+            color="neutral"
+            variant="ghost"
+            trailing-icon="i-lucide-arrow-right"
+          />
         </div>
+        <div
+          v-if="recentError"
+          class="p-5"
+        >
+          <UAlert
+            title="Could not load transactions"
+            color="error"
+          >
+            <template #actions>
+              <UButton
+                label="Retry"
+                color="error"
+                variant="soft"
+                @click="refreshRecent()"
+              />
+            </template>
+          </UAlert>
+        </div>
+        <TransactionTable
+          v-else-if="recent?.items.length"
+          :items="recent.items"
+        />
         <div
           v-else
           class="px-5 py-12 text-center text-sm text-[#62789C]"
         >
-          No sponsorship intent has been created yet.
+          No transactions yet
         </div>
       </section>
-      <section class="acme-card mt-6 p-5">
-        <h2 class="font-semibold">
-          Sponsor signer
-        </h2><div class="mt-3 grid gap-4 text-sm sm:grid-cols-3">
-          <div>
-            <p class="text-xs text-[#62789C]">
-              Address
-            </p><p class="font-mono">
-              {{ shortenAddress(data.signer?.address) }}
-            </p>
-          </div><div>
-            <p class="text-xs text-[#62789C]">
-              Provider
-            </p><p>{{ data.signer?.signerProvider || '—' }}</p>
-          </div><div>
-            <p class="text-xs text-[#62789C]">
-              Reconciled
-            </p><p>{{ formatDateTime(data.signer?.reconciledAt) }}</p>
-          </div>
-        </div>
-      </section>
+      <ProjectDangerZone
+        v-if="selected && ['owner', 'admin'].includes(selected.role)"
+        :key="selected.project.publicId"
+        :project="selected.project"
+      />
     </template>
-    <ProjectDangerZone
-      v-if="data && ['owner', 'admin'].includes(data.role)"
-      :key="data.project.publicId"
-      :project="data.project"
-    />
   </div>
 </template>

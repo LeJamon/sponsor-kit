@@ -12,11 +12,21 @@ const props = withDefaults(defineProps<{
   mode: 'transactions'
 })
 
-const chartWidth = 760
-const chartHeight = 300
+const container = useTemplateRef('container')
+const chartWidth = ref(760)
+const chartHeight = 260
 const margin = { top: 28, right: 30, bottom: 48, left: 100 }
-const plotWidth = chartWidth - margin.left - margin.right
+const plotWidth = computed(() => Math.max(1, chartWidth.value - margin.left - margin.right))
 const plotHeight = chartHeight - margin.top - margin.bottom
+let resizeObserver: ResizeObserver | undefined
+onMounted(() => {
+  if (!container.value) return
+  resizeObserver = new ResizeObserver(([entry]) => {
+    if (entry && entry.contentRect.width > 0) chartWidth.value = entry.contentRect.width
+  })
+  resizeObserver.observe(container.value)
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
 
 const dateFormatters: Record<UsageRange, Intl.DateTimeFormat> = {
   '24h': new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
@@ -37,7 +47,7 @@ const chart = computed(() => {
   const hasActivity = props.mode === 'fees'
     ? points.some(point => point.feeDrops > 0n)
     : points.some(point => point.validated > 0 || point.failed > 0)
-  const slotWidth = points.length ? plotWidth / points.length : plotWidth
+  const slotWidth = points.length ? plotWidth.value / points.length : plotWidth.value
   const barWidth = Math.max(2, Math.min(22, slotWidth * 0.25))
   return { points, maxCount, maxFeeDrops, hasActivity, slotWidth, barWidth }
 })
@@ -58,12 +68,8 @@ const yTicks = computed(() => {
 })
 
 const xTickIndexes = computed(() => {
-  if (props.series.length <= 6) return props.series.map((_, index) => index)
-  const step = Math.max(1, Math.ceil(props.series.length / 6))
-  const indexes: number[] = []
-  for (let index = 0; index < props.series.length; index += step) indexes.push(index)
-  if (indexes.at(-1) !== props.series.length - 1) indexes.push(props.series.length - 1)
-  return indexes
+  const tickCount = Math.min(props.series.length, chartWidth.value < 480 ? 3 : 6)
+  return Array.from({ length: tickCount }, (_, index) => Math.round(index * (props.series.length - 1) / Math.max(1, tickCount - 1)))
 })
 
 const hasActivity = computed(() => chart.value.hasActivity)
@@ -116,7 +122,7 @@ function formatPointXAxis(index: number) {
 </script>
 
 <template>
-  <div>
+  <div ref="container">
     <p
       v-if="!hasActivity"
       class="py-10 text-center text-sm text-[#62789C]"

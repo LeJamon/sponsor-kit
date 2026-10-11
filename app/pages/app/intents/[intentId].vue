@@ -87,9 +87,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="mx-auto max-w-5xl">
     <ConsolePageHeader
-      eyebrow="Transaction detail"
-      :title="intent ? `Intent ${intent.id.slice(0, 8)}…` : 'Transaction detail'"
-      description="Live state from the authenticated project record, including every state transition and submission attempt."
+      :title="intent ? `Transaction ${intent.id.slice(0, 8)}…` : 'Transaction detail'"
     >
       <UButton
         to="/app/intents"
@@ -184,7 +182,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="rounded-xl bg-[#F7FAFF] p-4">
             <p class="text-xs text-[#62789C]">
-              Sponsored fee
+              Estimated fee
             </p>
             <p class="mt-2 font-medium">
               {{ formatDropsAsXrp(intent.estimatedFeeDrops) }}
@@ -205,37 +203,15 @@ onBeforeUnmount(() => {
         v-if="intent.state === 'awaiting_user_signature'"
         class="mt-6"
         color="warning"
-        variant="subtle"
-        icon="i-lucide-pen-line"
-        title="This intent is waiting for the wallet signature"
-        description="Return to the browser tab that created the intent to review and sign it. A deep link cannot recreate the short-lived grant token."
-      >
-        <template #actions>
-          <UButton
-            to="/app/first-payment"
-            label="Open guided payment"
-            color="warning"
-            variant="soft"
-          />
-        </template>
-      </UAlert>
-      <UAlert
-        v-else-if="intent.state === 'validated'"
-        class="mt-6"
-        color="success"
-        variant="subtle"
-        icon="i-lucide-circle-check"
-        title="Validated on Devnet"
-        description="The latest submission has been confirmed by a validated ledger."
+        title="Awaiting wallet signature"
+        description="Sign and authorize this transaction through the application that requested it."
       />
       <UAlert
-        v-else-if="isTerminal"
+        v-else-if="isTerminal && intent.state !== 'validated'"
         class="mt-6"
         color="error"
-        variant="subtle"
-        icon="i-lucide-triangle-alert"
-        title="This intent will not advance further"
-        :description="`The terminal state is ${stateLabel}. Create a fresh intent if you need to retry.`"
+        :title="stateLabel"
+        description="Create a new request to retry."
       />
 
       <div class="mt-6 grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
@@ -244,9 +220,6 @@ onBeforeUnmount(() => {
             <h2 class="font-semibold">
               State history
             </h2>
-            <p class="mt-1 text-xs text-[#62789C]">
-              Durable event records from the sponsorship state machine.
-            </p>
           </div>
           <div
             v-if="eventRows.length"
@@ -276,7 +249,7 @@ onBeforeUnmount(() => {
             v-else
             class="p-6 text-sm text-[#62789C]"
           >
-            No state events were returned.
+            No events yet.
           </div>
         </section>
 
@@ -285,9 +258,6 @@ onBeforeUnmount(() => {
             <h2 class="font-semibold">
               Submission attempts
             </h2>
-            <p class="mt-1 text-xs text-[#62789C]">
-              A transaction hash is shown only when the backend records one.
-            </p>
           </div>
           <div
             v-if="intent.submissions.length"
@@ -320,7 +290,7 @@ onBeforeUnmount(() => {
             v-else
             class="p-6 text-sm text-[#62789C]"
           >
-            No submission has been recorded yet. The intent may still be waiting for a wallet signature.
+            Not submitted yet.
           </div>
         </section>
       </div>

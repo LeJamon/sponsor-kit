@@ -60,3 +60,14 @@ body { min-height: 100vh; }
   letter-spacing: .16em;
   text-transform: uppercase;
 }
+
+/* Console panels use a quieter treatment than the public site. */
+.dashboard-shell .acme-card {
+  border-radius: .75rem;
+  background: #fff;
+  box-shadow: none;
+}
+
+.dashboard-shell {
+  --acme-border: #e2e8f0;
+}

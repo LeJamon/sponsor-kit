@@ -27,8 +27,8 @@ export default defineEventHandler(async (event) => {
   const policy = await useDatabase().transaction(async (tx) => {
     // Serialize all version allocation for a project. This also covers the
     // first version of a policy name, where no previous row exists to lock.
-    const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, context.project.id)).for('update').limit(1)
-    if (!project) throw createError({ statusCode: 404, statusMessage: 'Project not found' })
+    const [project] = await tx.select({ id: projects.id, status: projects.status }).from(projects).where(eq(projects.id, context.project.id)).for('update').limit(1)
+    if (!project || project.status === 'archived') throw createError({ statusCode: 404, statusMessage: 'Project not found' })
     const [previous] = await tx.select().from(sponsorshipPolicies).where(and(eq(sponsorshipPolicies.projectId, context.project.id), eq(sponsorshipPolicies.name, parsed.data.name))).orderBy(desc(sponsorshipPolicies.version)).for('update').limit(1)
     const version = (previous?.version || 0) + 1
     if (parsed.data.activate) await tx.update(sponsorshipPolicies).set({ status: 'paused' }).where(and(eq(sponsorshipPolicies.projectId, context.project.id), eq(sponsorshipPolicies.name, parsed.data.name), eq(sponsorshipPolicies.status, 'active')))

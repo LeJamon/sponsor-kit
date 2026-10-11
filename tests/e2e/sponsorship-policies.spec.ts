@@ -1,0 +1,125 @@
+import { randomUUID } from 'node:crypto'
+import { expect, test } from '@playwright/test'
+import { createTestAccount } from './signup'
+
+test('policies use a full-page editor with validated limits and immutable versions', async ({ page, baseURL }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  expect((await createTestAccount(page.request, baseURL!, {
+    name: 'Policy tester', email: `policies-${randomUUID()}@example.invalid`, password: `Policies-${randomUUID()}!`
+  })).ok()).toBe(true)
+  const onboarding = await page.request.post('/api/onboarding', {
+    headers: { origin: baseURL! }, data: { organizationName: 'Policy workspace' }
+  })
+  expect(onboarding.status()).toBe(201)
+  const { project } = await onboarding.json()
+  const endpoint = `/api/console/projects/${project.publicId}/policies`
+
+  await page.goto('/app/sponsorship')
+  await expect(page.getByRole('heading', { name: 'Sponsorship', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'New policy', exact: true }).click()
+  await expect(page).toHaveURL(/\/app\/sponsorship\/new$/)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.getByLabel('Policy name', { exact: true }).fill('Demo payments')
+  await expect(page.getByLabel('Maximum reserve', { exact: true })).toHaveValue('1')
+  await page.getByLabel('Maximum fee', { exact: true }).fill('0.0000011')
+  await page.getByRole('button', { name: 'Publish policy', exact: true }).click()
+  await expect(page.getByText('Policy could not be published', { exact: true })).toBeVisible()
+  await page.getByLabel('Maximum fee', { exact: true }).fill('0.000025')
+  await page.getByRole('tab', { name: 'Transactions', exact: true }).click()
+  await expect(page.getByLabel('Maximum fee', { exact: true })).toHaveCount(0)
+  const payment = page.getByRole('checkbox', { name: 'Allow Payment', exact: true })
+  await payment.uncheck()
+  await expect(payment).not.toBeChecked()
+  await payment.check()
+  await page.getByRole('tab', { name: 'Access', exact: true }).click()
+  await page.getByLabel('Allowed destinations', { exact: true }).fill('not-an-xrpl-address')
+  await page.getByRole('button', { name: 'Publish policy', exact: true }).click()
+  await expect(page.getByText('Policy could not be published', { exact: true })).toBeVisible()
+  await page.getByLabel('Allowed destinations', { exact: true }).fill('rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh')
+  await page.getByRole('tab', { name: 'Settings', exact: true }).click()
+  await page.getByLabel('Wallet intents per UTC day', { exact: true }).fill('7')
+  await page.getByRole('tab', { name: 'Fees & reserves', exact: true }).click()
+  await expect(page.getByLabel('Maximum fee', { exact: true })).toHaveValue('0.000025')
+  await page.evaluate(() => window.scrollTo(0, 0))
+  await page.screenshot({ path: 'test-results/policy-create-desktop.png', fullPage: true, animations: 'disabled' })
+  await page.getByRole('button', { name: 'Publish policy', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Demo payments', exact: true })).toBeVisible()
+  const firstId = page.url().split('/').at(-1)
+  const first = (await (await page.request.get(endpoint)).json()).find((row: { id: string }) => row.id === firstId)
+  expect(first.document.maximumFeeDrops).toBe('25')
+  expect(first.document.maximumReserveDrops).toBe('1000000')
+  expect(first.document.maximumIntentsPerWalletPerDay).toBe(7)
+  expect(first.document.allowedDestinations).toEqual(['rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh'])
+
+  await page.getByRole('button', { name: 'Edit version', exact: true }).click()
+  await page.getByLabel('Maximum fee', { exact: true }).fill('0.000030')
+  await page.getByRole('button', { name: 'Publish new version', exact: true }).click()
+  await expect(page).not.toHaveURL(new RegExp(`${firstId}$`))
+  await expect(page.getByRole('heading', { name: 'Demo payments', exact: true })).toBeVisible()
+  const secondId = page.url().split('/').at(-1)
+  const versions = await (await page.request.get(endpoint)).json()
+  expect(versions.find((row: { id: string }) => row.id === firstId).document).toEqual(first.document)
+  expect(versions.find((row: { id: string }) => row.id === secondId)).toMatchObject({ version: 2, status: 'active', document: { maximumFeeDrops: '30' } })
+  await page.getByRole('button', { name: 'Pause', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Activate', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Activate', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Archive', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Archive policy?', exact: true })
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Edit version', exact: true }).click()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/policy-edit-mobile.png', fullPage: true, animations: 'disabled' })
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Archive', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Archive policy', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect((await (await page.request.get(endpoint)).json()).find((row: { id: string }) => row.id === secondId).status).toBe('archived')
+  await page.goto('/app/sponsorship/usage')
+  await page.getByLabel('Policy', { exact: true }).click()
+  await page.getByRole('option', { name: 'Demo payments · v2', exact: true }).click()
+  await expect(page.getByLabel('Policy', { exact: true })).toContainText('Demo payments · v2')
+  const concurrent = await Promise.all([1, 2].map(() => page.request.post(endpoint, {
+    headers: { origin: baseURL! }, data: { name: 'Concurrent policy', document: first.document, activate: true }
+  })))
+  expect(concurrent.map(response => response.status())).toEqual([201, 201])
+  const created = await Promise.all(concurrent.map(response => response.json()))
+  expect(created.map(row => row.version).sort()).toEqual([1, 2])
+  const activations = await Promise.all(created.map(row => page.request.patch(`${endpoint}/${row.id}`, {
+    headers: { origin: baseURL! }, data: { status: 'active' }
+  })))
+  expect(activations.every(response => response.ok())).toBe(true)
+  const rows = await (await page.request.get(endpoint)).json()
+  expect(rows.filter((row: { name: string, status: string }) => row.name === 'Concurrent policy' && row.status === 'active')).toHaveLength(1)
+  expect(errors).toEqual([])
+})
+
+test('API key creation and revocation retain explicit feedback', async ({ page, baseURL }) => {
+  expect((await createTestAccount(page.request, baseURL!, {
+    name: 'Key tester', email: `keys-${randomUUID()}@example.invalid`, password: `Keys-${randomUUID()}!`
+  })).ok()).toBe(true)
+  expect((await page.request.post('/api/onboarding', {
+    headers: { origin: baseURL! }, data: { organizationName: 'Key workspace' }
+  })).status()).toBe(201)
+  await page.goto('/app/api-keys')
+  await page.getByRole('button', { name: 'Create API key', exact: true }).click()
+  await page.getByLabel('Name', { exact: true }).fill('Demo backend')
+  await page.getByRole('button', { name: 'Create key', exact: true }).click()
+  await expect(page.getByText('Copy this secret now', { exact: true })).toBeVisible()
+  await page.screenshot({ path: 'test-results/api-keys-desktop.png', fullPage: true, animations: 'disabled' })
+  await page.getByRole('button', { name: 'Revoke', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Revoke API key?', exact: true })
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Revoke', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Revoke key', exact: true }).click()
+  await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.getByText('Copy this secret now', { exact: true })).toHaveCount(0)
+  await page.goto('/app/funding')
+  await expect(page.getByRole('heading', { name: 'Project budget', exact: true })).toBeVisible()
+  await page.screenshot({ path: 'test-results/funding-desktop.png', fullPage: true, animations: 'disabled' })
+})

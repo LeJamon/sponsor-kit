@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { authClient } from '~~/lib/auth-client'
 
-const form = reactive({ name: '', organization: '', email: '', password: '', terms: false })
+const form = reactive({ name: '', organization: '', email: '', password: '' })
 const loading = ref(false)
 const error = ref('')
 const accountCreated = ref(false)
@@ -20,7 +20,6 @@ async function finishSetup() {
 }
 
 async function submit() {
-  if (!form.terms) return
   error.value = ''
   setupRecovery.value = false
   loading.value = true
@@ -126,18 +125,12 @@ async function submit() {
             required
             class="w-full"
           />
-        </UFormField><UCheckbox
-          v-model="form.terms"
-          required
-          label="I understand this is a disposable Devnet wallet and I will not use real funds"
-          class="sm:col-span-2"
-        /><UButton
+        </UFormField><UButton
           type="submit"
           label="Create account"
           block
           size="lg"
           :loading="loading"
-          :disabled="!form.terms"
           class="sm:col-span-2"
         />
       </form><p class="mt-6 text-center text-sm text-[#62789C]">

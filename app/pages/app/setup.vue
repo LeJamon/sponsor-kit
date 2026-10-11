@@ -17,9 +17,7 @@ async function retryChecks() {
 <template>
   <div class="mx-auto max-w-5xl">
     <ConsolePageHeader
-      eyebrow="Workspace setup"
-      :title="hasProject ? 'Project setup' : 'Create your first project'"
-      :description="hasProject ? 'Review your project and its sponsorship readiness.' : 'Set up your workspace to start sponsoring transactions.'"
+      :title="hasProject ? 'Network checks' : 'Create your first project'"
     >
       <UButton
         v-if="hasProject"
@@ -59,7 +57,7 @@ async function retryChecks() {
         </span>
         <div>
           <h2 class="font-semibold">
-            Create the first project
+            No projects
           </h2>
           <p class="mt-1 max-w-2xl text-sm leading-6 text-[#62789C]">
             Choose a project name and network to get started.
@@ -96,9 +94,6 @@ async function retryChecks() {
             />
           </div>
         </div>
-        <p class="mt-6 max-w-2xl text-sm leading-6 text-[#62789C]">
-          Your console is connected to the Devnet sponsor. Readiness checks below are live; a check that is still pending will not be presented as ready.
-        </p>
       </section>
     </template>
 
@@ -108,9 +103,6 @@ async function retryChecks() {
           <h2 class="font-semibold">
             Network readiness
           </h2>
-          <p class="mt-1 text-xs text-[#62789C]">
-            The same checks gate the first sponsored transaction.
-          </p>
         </div>
         <UButton
           label="Refresh checks"

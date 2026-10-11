@@ -26,13 +26,13 @@ const items = computed(() => [
     <UButton
       color="neutral"
       variant="ghost"
+      icon="i-lucide-box"
       trailing-icon="i-lucide-chevrons-up-down"
       aria-label="Choose project"
       class="min-w-0 max-w-48 sm:max-w-80"
       :ui="{ trailingIcon: 'shrink-0' }"
     >
       <span class="min-w-0 text-left">
-        <span class="block text-xs font-normal text-[#62789C]">Project</span>
         <span class="block truncate text-sm font-semibold text-[#10244A]">{{ selected?.project.name || 'Create your first project' }}</span>
       </span>
     </UButton>

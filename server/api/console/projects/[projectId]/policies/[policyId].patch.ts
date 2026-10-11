@@ -18,8 +18,8 @@ export default defineEventHandler(async (event) => {
   const updated = await useDatabase().transaction(async (tx) => {
     // Keep status transitions and version publication on the same project lock
     // so concurrent activation cannot race a newly published version.
-    const [project] = await tx.select({ id: projects.id }).from(projects).where(eq(projects.id, context.project.id)).for('update').limit(1)
-    if (!project) throw createError({ statusCode: 404, statusMessage: 'Project not found' })
+    const [project] = await tx.select({ id: projects.id, status: projects.status }).from(projects).where(eq(projects.id, context.project.id)).for('update').limit(1)
+    if (!project || project.status === 'archived') throw createError({ statusCode: 404, statusMessage: 'Project not found' })
     const [policy] = await tx.select().from(sponsorshipPolicies).where(and(eq(sponsorshipPolicies.id, policyId), eq(sponsorshipPolicies.projectId, context.project.id))).for('update').limit(1)
     if (!policy) throw createError({ statusCode: 404, statusMessage: 'Policy not found' })
     if (parsed.data.status === 'active') await tx.update(sponsorshipPolicies).set({ status: 'paused' }).where(and(eq(sponsorshipPolicies.projectId, context.project.id), eq(sponsorshipPolicies.name, policy.name), eq(sponsorshipPolicies.status, 'active'), ne(sponsorshipPolicies.id, policy.id)))

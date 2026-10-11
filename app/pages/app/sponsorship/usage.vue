@@ -9,7 +9,8 @@ definePageMeta({ layout: 'dashboard' })
 
 const range = ref<UsageRange>('7d')
 const policyId = ref('all')
-const { projectId } = await useConsoleProject()
+const createOpen = useState('project-creation-open', () => false)
+const { projectId, error: contextError, refresh: refreshContext } = await useConsoleProject()
 const usageKey = computed(() => `project-usage-${projectId.value || 'none'}-${range.value}-${policyId.value}`)
 const { data, status, error, refresh } = await useAsyncData<ProjectUsage | null>(
   usageKey,
@@ -56,7 +57,10 @@ const periodLabel = computed(() => {
 
     <SponsorshipTabs />
 
-    <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div
+      v-if="projectId"
+      class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
+    >
       <p
         v-if="data"
         class="text-sm text-[#62789C]"
@@ -84,7 +88,35 @@ const periodLabel = computed(() => {
     </div>
 
     <UAlert
-      v-if="error"
+      v-if="contextError"
+      title="Could not load projects"
+      color="error"
+    >
+      <template #actions>
+        <UButton
+          label="Retry"
+          color="error"
+          variant="soft"
+          @click="refreshContext()"
+        />
+      </template>
+    </UAlert>
+    <section
+      v-else-if="!projectId"
+      class="acme-card px-5 py-14 text-center"
+    >
+      <h2 class="font-semibold">
+        No projects yet
+      </h2>
+      <UButton
+        label="Create project"
+        icon="i-lucide-plus"
+        class="mt-5"
+        @click="createOpen = true"
+      />
+    </section>
+    <UAlert
+      v-else-if="error"
       color="error"
       variant="subtle"
       title="Usage is unavailable"

@@ -34,7 +34,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-Browser tests start their own loopback RPC and application, and intercept only
-the faucet request. Authentication, signing, PostgreSQL, authorization, worker
-submission, and status APIs execute the production application code. Do not
+Browser tests start their own loopback RPC and application. The payment integration
+uses a test wallet in the test process and the public API; the console displays its
+validated outcome. Authentication, PostgreSQL, authorization, worker submission,
+and status APIs execute the production application code. Do not
 point the browser suite at a database containing real application data.

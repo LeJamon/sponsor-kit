@@ -1,5 +1,7 @@
 # Lessons
 
+- Keep console copy tied to decisions: concise titles, metric periods, field consequences, and actionable errors. Put complex policy configuration on a full page, and remove unwanted demo flows entirely instead of relocating or renaming them.
+
 - Keep project creation in a compact modal with only the requested name and network inputs. Reuse that flow for empty workspaces and creation after deleting the last project.
 
 - Match the referenced navigation interaction: icons at rest, labels on hover or keyboard focus, and a logo-only sidebar header. Do not substitute a persistent click-to-collapse control.

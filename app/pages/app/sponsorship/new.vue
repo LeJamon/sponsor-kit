@@ -37,11 +37,18 @@ const saving = ref(false)
 const errorMessage = ref('')
 
 const defaultsApplied = ref(false)
-watch([transactionTypeOptions, policyStatus], ([options, policiesLoading]) => {
+watch([policies, policyStatus], ([rows, policiesLoading]) => {
   if (defaultsApplied.value || policiesLoading === 'pending') return
-  form.value = { ...form.value, transactionTypes: [...options] }
+  const configured = (rows || []).flatMap(policy => Array.isArray(policy.document.allowedTransactionTypes)
+    ? policy.document.allowedTransactionTypes.filter((item): item is string => typeof item === 'string')
+    : [])
+  form.value = { ...form.value, transactionTypes: configured.length ? [...new Set(configured)] : ['Payment'] }
   defaultsApplied.value = true
 }, { immediate: true })
+
+watch([form, name], () => {
+  errorMessage.value = ''
+}, { deep: true })
 
 function requestErrorMessage(requestError: unknown, fallback: string) {
   const failure = requestError as { data?: { statusMessage?: string }, statusMessage?: string }

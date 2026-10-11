@@ -16,11 +16,14 @@ test('project selection and hover navigation work without mixing project data', 
   const first = await onboarding.json()
 
   await page.goto('/app')
-  await expect(page.getByRole('heading', { name: 'My first project overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'My first project', exact: true })).toBeVisible()
   await expect(page.getByText(/pilot|systems operational|system status unavailable/i)).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /first payment|guided payment|playground/i })).toHaveCount(0)
+  expect((await page.request.get('/app/first-payment')).status()).toBe(404)
+  expect((await page.request.post('/api/console/devnet/fund', { data: {} })).status()).toBe(404)
   const sidebar = page.locator('#desktop-navigation')
   const firstLabel = sidebar.locator('.dashboard-nav-label').first()
-  await page.getByRole('heading', { name: 'My first project overview', exact: true }).hover()
+  await page.getByRole('heading', { name: 'My first project', exact: true }).hover()
   await expect(sidebar).toHaveCSS('width', '80px')
   await expect(page.locator('.dashboard-content')).toHaveCSS('padding-left', '80px')
   await expect(firstLabel).toHaveCSS('opacity', '0')
@@ -62,24 +65,23 @@ test('project selection and hover navigation work without mixing project data', 
   await page.getByRole('dialog').getByRole('button', { name: 'Create', exact: true }).click()
   await expect(page.getByText('Project creation needs attention', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Retry creation', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Demo application overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Demo application', exact: true })).toBeVisible()
   const context = await (await page.request.get('/api/console/context')).json()
   expect(context.projects).toHaveLength(2)
   const second = context.projects.find((item: { project: { name: string } }) => item.project.name === 'Demo application')
   expect(second.organization.id).toBe(first.organization.id)
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Demo application overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Demo application', exact: true })).toBeVisible()
 
   const key = await page.request.post(`/api/console/projects/${second.project.publicId}/api-keys`, {
     headers: { origin: baseURL! }, data: { name: 'Demo-only key', scopes: ['intents:read'] }
   })
   expect(key.ok()).toBe(true)
   for (const [label, endpoint] of [
-    ['Policies', 'policies'],
+    ['Sponsorship', 'policies'],
     ['Funding', 'funding'],
-    ['Intents', 'intents'],
-    ['Reserve migration', 'reserve-migration-plans'],
-    ['First sponsored payment', 'protocol']
+    ['Transactions', 'intents'],
+    ['Reserve migration', 'reserve-migration-plans']
   ]) {
     const response = page.waitForResponse(item => item.url().includes(`/api/console/projects/${second.project.publicId}/${endpoint}`))
     await page.getByRole('link', { name: label, exact: true }).click()
@@ -89,7 +91,7 @@ test('project selection and hover navigation work without mixing project data', 
   await expect(page.getByText('Demo-only key', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Choose project', exact: true }).click()
   await page.getByRole('menuitem', { name: /My first project/ }).click()
-  await expect(page.getByRole('heading', { name: 'My first project overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'My first project', exact: true })).toBeVisible()
   await page.getByRole('link', { name: 'API keys', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'API keys', exact: true })).toBeVisible()
   await expect(page.getByText('Demo-only key', { exact: true })).toHaveCount(0)
@@ -101,7 +103,7 @@ test('project selection and hover navigation work without mixing project data', 
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await page.getByRole('button', { name: 'Choose project', exact: true }).click()
   await page.getByRole('menuitem', { name: /Demo application/ }).click()
-  await expect(page.getByRole('heading', { name: 'Demo application overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Demo application', exact: true })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/dashboard-projects-mobile.png', fullPage: true })
   expect(errors).toEqual([])
@@ -135,7 +137,7 @@ test('project modals support cancellation, confirmed deletion, and creation afte
   const creation = page.waitForRequest(request => request.url().endsWith('/api/console/projects') && request.method() === 'POST')
   await createDialog.getByRole('button', { name: 'Create', exact: true }).click()
   expect((await creation).postDataJSON().network).toBe('devnet')
-  await expect(page.getByRole('heading', { name: 'Deletion demo overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Deletion demo', exact: true })).toBeVisible()
   await expect(page.getByText('Project created', { exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Delete project', exact: true }).click()
@@ -157,7 +159,7 @@ test('project modals support cancellation, confirmed deletion, and creation afte
   await deleteDialog.getByRole('button', { name: 'Delete project', exact: true }).click()
   await expect(deleteDialog.getByText('Project could not be deleted', { exact: true })).toBeVisible()
   await deleteDialog.getByRole('button', { name: 'Delete project', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'My first project overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'My first project', exact: true })).toBeVisible()
   await expect(page.getByText('Project deleted', { exact: true })).toBeVisible()
   await page.reload()
   const context = await (await page.request.get('/api/console/context')).json()
@@ -175,7 +177,7 @@ test('project modals support cancellation, confirmed deletion, and creation afte
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.screenshot({ path: 'test-results/create-project-modal-mobile.png', fullPage: true, animations: 'disabled' })
   await createDialog.getByRole('button', { name: 'Create', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Replacement project overview', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Replacement project', exact: true })).toBeVisible()
   const replacement = await (await page.request.get('/api/console/context')).json()
   expect(replacement.projects).toHaveLength(1)
   expect(replacement.projects[0].organization.id).toBe(first.organization.id)

@@ -131,6 +131,14 @@ projects share the configured sponsor treasury. The selected project is remember
 in the browser. The desktop sidebar shows icons at rest and expands on hover or
 keyboard focus.
 
+The console groups policy configuration and analytics under **Sponsorship**.
+Create and revise policies on a full page; publishing a revision preserves the
+policy snapshot attached to existing transactions. Usage reports separate fees
+spent from current locked and pending reserves, with project and policy filters.
+The overview shows project activity and recent transactions. Integrations use
+the API and the runnable payment example below; there is no in-console wallet
+or guided payment tool.
+
 The overview’s Danger zone lets owners/admins delete a project after confirming
 its name. Deletion removes it from the workspace and revokes its API keys;
 ledger and audit history are retained. Pending transactions and active reserve
@@ -150,7 +158,7 @@ npm run smoke:devnet # opt-in real sponsored fee + reserve transfer smoke
 npm run lint         # ESLint
 npm run typecheck    # Nuxt/Vue TypeScript
 npm test             # domain, signer, transport, and integration-client tests
-npm run test:e2e     # browser payment flow (migrated and bootstrapped test DB required)
+npm run test:e2e     # console/integration flows (migrated, bootstrapped test DB required)
 npm run build        # production bundle
 npm run verify       # all checks above
 npm run db:setup     # start local PostgreSQL and apply migrations
@@ -160,10 +168,6 @@ npm run admin:bootstrap # create or promote the configured platform admin
 ```
 
 ## API preview
-
-For a guided browser demonstration, open **Try sponsorship** in the console.
-The disposable Devnet wallet signs in browser memory; its private key never
-reaches the API and cannot be recovered after a full page reload.
 
 For a runnable developer integration, follow the
 [Devnet payment example](examples/README.md). It prepares, signs, authorizes,

@@ -5,14 +5,13 @@ const route = useRoute()
 const open = ref(false)
 const createOpen = useState('project-creation-open', () => false)
 const signingOut = ref(false)
-const { data: context } = await useConsoleProject()
+const { data: context, selected } = await useConsoleProject()
 const { selectProject } = useProjectSelection()
 
 const baseNavigation = [
   { label: 'Overview', icon: 'i-lucide-layout-dashboard', to: '/app' },
-  { label: 'First sponsored payment', icon: 'i-lucide-send', to: '/app/first-payment' },
-  { label: 'Intents', icon: 'i-lucide-list-checks', to: '/app/intents' },
-  { label: 'Policies', icon: 'i-lucide-shield-check', to: '/app/policies' },
+  { label: 'Transactions', icon: 'i-lucide-list-checks', to: '/app/intents' },
+  { label: 'Sponsorship', icon: 'i-lucide-shield-check', to: '/app/sponsorship' },
   { label: 'Reserve migration', icon: 'i-lucide-arrow-left-right', to: '/app/reserves/migrate' },
   { label: 'Funding', icon: 'i-lucide-landmark', to: '/app/funding' },
   { label: 'API keys', icon: 'i-lucide-key-round', to: '/app/api-keys' }
@@ -35,7 +34,7 @@ async function signOut() {
 </script>
 
 <template>
-  <div class="dashboard-shell min-h-screen bg-[#F7FAFF]">
+  <div class="dashboard-shell min-h-screen bg-[#FAFBFC]">
     <aside
       id="desktop-navigation"
       class="dashboard-sidebar fixed inset-y-0 left-0 z-40 hidden overflow-x-hidden overflow-y-auto border-r border-[#D9E5F7] bg-white px-3 py-5 lg:block"
@@ -70,7 +69,7 @@ async function signOut() {
     </aside>
 
     <div class="dashboard-content">
-      <header class="sticky top-0 z-30 flex h-18 items-center justify-between border-b border-[#D9E5F7] bg-white/90 px-5 backdrop-blur lg:px-8">
+      <header class="sticky top-0 z-30 flex h-18 items-center justify-between border-b border-[#D9E5F7] bg-white px-5 lg:px-8">
         <div class="flex min-w-0 items-center gap-2 sm:gap-3">
           <UButton
             icon="i-lucide-menu"
@@ -81,6 +80,13 @@ async function signOut() {
             @click="open = true"
           />
           <ProjectSwitcher />
+          <UBadge
+            v-if="selected"
+            :label="selected.project.network"
+            color="neutral"
+            variant="subtle"
+            class="hidden capitalize sm:inline-flex"
+          />
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <UButton
@@ -106,7 +112,7 @@ async function signOut() {
           />
         </div>
       </header>
-      <main class="px-5 py-7 lg:px-8 lg:py-9">
+      <main class="min-w-0 px-5 py-7 lg:px-8 lg:py-8">
         <slot />
       </main>
     </div>

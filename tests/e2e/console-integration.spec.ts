@@ -1,10 +1,16 @@
 import { randomUUID } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { expect, test } from '@playwright/test'
 import { createTestAccount } from './signup'
 
+// Load the published CommonJS entry points outside Playwright's ESM transform.
+const require = createRequire(import.meta.url)
+const { deriveAddress, deriveKeypair, generateSeed, sign } = require('ripple-keypairs') as typeof import('ripple-keypairs')
+const { encode, encodeForSigning, XrplDefinitions } = require('ripple-binary-codec') as typeof import('ripple-binary-codec')
+
 const destination = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh'
 
-test('a developer signs a payment in the browser and can revisit its validated outcome', async ({ page, playwright, baseURL }) => {
+test('an integration sponsors a payment and the console shows its validated outcome', async ({ page, playwright, baseURL }) => {
   const browserErrors: string[] = []
   const sensitiveRequests: string[] = []
   let authorization: { grant: string, signedTransaction: string } | undefined
@@ -14,16 +20,11 @@ test('a developer signs a payment in the browser and can revisit its validated o
     const body = request.postData()
     if (body && /"(?:seed|privateKey|private_key)"\s*:/.test(body)) sensitiveRequests.push(request.url())
   })
-  await page.route('**/api/console/devnet/fund', async (route) => {
-    const { account } = route.request().postDataJSON()
-    await route.fulfill({ json: { account, funded: true, pending: false, balanceDrops: '10000000000', ledgerIndex: 900000 } })
-  })
   await page.goto('/sign-up')
   await page.getByLabel('Your name', { exact: true }).fill('MVP browser tester')
   await page.getByLabel('Organization', { exact: true }).fill('Browser test organization')
   await page.getByLabel('Work email', { exact: true }).fill(`browser-${randomUUID()}@example.invalid`)
   await page.getByLabel('Password', { exact: true }).fill(`Browser-${randomUUID()}!`)
-  await page.getByRole('checkbox').check()
   // Browser cases share a loopback IP. Retry only rate-limit rejections,
   // which cannot have created an account, while keeping the real signup UI.
   await expect(async () => {
@@ -32,34 +33,36 @@ test('a developer signs a payment in the browser and can revisit its validated o
     expect((await response).status()).not.toBe(429)
   }).toPass({ intervals: [1000], timeout: 20_000 })
   await expect(page).toHaveURL(/\/app(?:\/setup)?$/)
-  await page.goto('/app/first-payment')
-  await expect(page.getByRole('button', { name: 'Generate disposable wallet', exact: true })).toBeEnabled()
-  await page.getByRole('button', { name: 'Generate disposable wallet', exact: true }).click()
-  await page.getByRole('button', { name: 'Fund disposable wallet', exact: true }).click()
-  await page.getByLabel('Destination address', { exact: true }).fill(destination)
-  await page.getByLabel('Amount', { exact: true }).fill('1')
-  await expect(page.getByRole('button', { name: 'Review sponsored payment', exact: true })).toBeEnabled()
-  await page.getByRole('button', { name: 'Review sponsored payment', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Sign exact transaction', exact: true })).toBeVisible()
-  await page.evaluate(() => window.scrollTo(0, 0))
-  await page.screenshot({ path: 'test-results/payment-review-desktop.png', fullPage: true })
-  await page.setViewportSize({ width: 390, height: 844 })
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  await page.evaluate(() => window.scrollTo(0, 0))
-  await page.screenshot({ path: 'test-results/payment-review-mobile.png', fullPage: true })
-  await page.setViewportSize({ width: 1280, height: 720 })
-  await page.getByRole('button', { name: 'Sign exact transaction', exact: true }).click()
-  await expect(page.getByText('Signature created in this tab', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Submit signed transaction', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Your first sponsored payment completed', exact: true })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('link', { name: 'View transaction detail', exact: true }).click()
-  await expect(page).toHaveURL(/\/app\/intents\/[a-f0-9-]+$/)
-  const intentId = page.url().split('/').at(-1)!
+  const context = await (await page.request.get('/api/console/context')).json()
+  const projectId = context.projects[0].project.publicId
+  const keyResponse = await page.request.post(`/api/console/projects/${projectId}/api-keys`, {
+    headers: { origin: baseURL! }, data: { name: 'Integration test', scopes: ['intents:create', 'intents:read', 'usage:read'] }
+  })
+  expect(keyResponse.status()).toBe(201)
+  const { secret } = await keyResponse.json()
+  const headers = { authorization: `Bearer ${secret}` }
+  const protocolResponse = await page.request.get(`/api/v1/projects/${projectId}/protocol`, { headers })
+  expect(protocolResponse.ok()).toBe(true)
+  const protocol = await protocolResponse.json()
+  const wallet = deriveKeypair(generateSeed({ algorithm: 'ed25519' }))
+  const account = deriveAddress(wallet.publicKey)
+  const creation = await page.request.post(`/api/v1/projects/${projectId}/intents`, {
+    headers: { ...headers, 'idempotency-key': randomUUID() },
+    data: { account, transaction: { TransactionType: 'Payment', Destination: destination, Amount: '1000000' }, sponsorship: { fee: true, reserve: false } }
+  })
+  expect(creation.status(), await creation.text()).toBe(201)
+  const prepared = await creation.json()
+  const codec = new XrplDefinitions(protocol.definitions)
+  const transaction = { ...prepared.transaction, SigningPubKey: wallet.publicKey }
+  authorization = { grant: prepared.grant, signedTransaction: encode({ ...transaction, TxnSignature: sign(encodeForSigning(transaction, codec), wallet.privateKey) }, codec) }
+  const authorized = await page.request.post(`/api/v1/intents/${prepared.id}/authorize`, { data: authorization })
+  expect(authorized.status()).toBe(202)
+  const intentId = prepared.id
+  await expect.poll(async () => (await (await page.request.get(`/api/console/projects/${projectId}/intents/${intentId}`)).json()).state, { timeout: 30_000 }).toBe('validated')
+  await page.goto(`/app/intents/${intentId}`)
   await page.reload()
   await expect(page.getByRole('heading', { name: 'State history', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Open Explorer', exact: true })).toHaveAttribute('href', /devnet/)
-  const context = await (await page.request.get('/api/console/context')).json()
-  const projectId = context.projects[0].project.publicId
   const detailResponse = await page.request.get(`/api/console/projects/${projectId}/intents/${intentId}`)
   expect(detailResponse.status()).toBe(200)
   const detail = await detailResponse.json()
@@ -80,6 +83,21 @@ test('a developer signs a payment in the browser and can revisit its validated o
   await page.setViewportSize({ width: 390, height: 844 })
   await page.screenshot({ path: 'test-results/transaction-detail-mobile.png', fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  const usageResponse = await page.request.get(`/api/console/projects/${projectId}/usage`, { params: { range: '24h' } })
+  expect(usageResponse.ok()).toBe(true)
+  const usage = await usageResponse.json()
+  expect(usage.totals).toMatchObject({ validated: 1, successRate: 100, feeSpentDrops: '10' })
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/app')
+  await expect(page.getByRole('heading', { name: 'Activity', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: `View transaction ${intentId}`, exact: true })).toBeVisible()
+  await page.screenshot({ path: 'test-results/overview-active-desktop.png', fullPage: true, animations: 'disabled' })
+  await page.goto('/app/sponsorship/usage')
+  await expect(page.getByRole('heading', { name: 'Sponsorship', exact: true })).toBeVisible()
+  await page.screenshot({ path: 'test-results/sponsorship-usage-desktop.png', fullPage: true, animations: 'disabled' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({ path: 'test-results/sponsorship-usage-mobile.png', fullPage: true, animations: 'disabled' })
   const foreign = await playwright.request.newContext({ baseURL })
   try {
     const signup = await createTestAccount(foreign, baseURL!, {
@@ -88,6 +106,7 @@ test('a developer signs a payment in the browser and can revisit its validated o
     expect(signup.ok()).toBe(true)
     const response = await foreign.get(`/api/console/projects/${projectId}/intents/${intentId}`)
     expect(response.status()).toBe(404)
+    expect((await foreign.get(`/api/console/projects/${projectId}/usage`)).status()).toBe(404)
   } finally {
     await foreign.dispose()
   }
@@ -96,7 +115,7 @@ test('a developer signs a payment in the browser and can revisit its validated o
 })
 
 test('protected routes redirect guests and password recovery explains missing email configuration', async ({ page }) => {
-  await page.goto('/app/first-payment')
+  await page.goto('/app/sponsorship')
   await expect(page).toHaveURL(/\/sign-in\?redirect=/)
   await page.goto('/forgot-password')
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
