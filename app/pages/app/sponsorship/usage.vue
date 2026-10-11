@@ -8,24 +8,29 @@ const requestFetch = useRequestFetch()
 definePageMeta({ layout: 'dashboard' })
 
 const range = ref<UsageRange>('7d')
-const policyId = ref('')
+const policyId = ref('all')
 const { projectId } = await useConsoleProject()
-const usageKey = computed(() => `project-usage-${projectId.value || 'none'}-${range.value}-${policyId.value || 'all'}`)
+const usageKey = computed(() => `project-usage-${projectId.value || 'none'}-${range.value}-${policyId.value}`)
 const { data, status, error, refresh } = await useAsyncData<ProjectUsage | null>(
   usageKey,
   () => projectId.value
-    ? requestFetch<ProjectUsage>(`/api/console/projects/${projectId.value}/usage`, { query: { range: range.value, policyId: policyId.value || undefined } })
+    ? requestFetch<ProjectUsage>(`/api/console/projects/${projectId.value}/usage`, { query: { range: range.value, policyId: policyId.value === 'all' ? undefined : policyId.value } })
     : Promise.resolve(null),
   { watch: [projectId, range, policyId] }
 )
 
+watch(projectId, () => {
+  policyId.value = 'all'
+})
+
 const policyOptions = computed(() => [
-  { label: 'All policies', value: '' },
+  { label: 'All policies', value: 'all' },
   ...(data.value?.policies || []).map(policy => ({
     label: `${policy.name} · v${policy.version}`,
     value: policy.id
   }))
 ])
+const reserveDetail = computed(() => 'Current · project total')
 const successRateLabel = computed(() => data.value?.totals.successRate == null ? '—' : `${data.value.totals.successRate.toFixed(2)}%`)
 const periodLabel = computed(() => {
   if (!data.value) return ''
@@ -37,9 +42,7 @@ const periodLabel = computed(() => {
 <template>
   <div>
     <ConsolePageHeader
-      eyebrow="Sponsorship"
-      title="Usage"
-      description="Confirmed sponsorship activity and project reserve exposure from durable ledger accounting."
+      title="Sponsorship"
     >
       <UButton
         label="Refresh"
@@ -53,36 +56,32 @@ const periodLabel = computed(() => {
 
     <SponsorshipTabs />
 
-    <section class="acme-card mb-6 p-4 sm:p-5">
-      <div class="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p class="text-xs font-semibold uppercase tracking-[.14em] text-[#62789C]">
-            Reporting period
-          </p>
-          <p class="mt-1 text-sm text-[#62789C]">
-            {{ data ? periodLabel : 'Choose a period to load confirmed activity.' }}
-          </p>
-        </div>
-        <div class="grid gap-3 sm:grid-cols-2 md:min-w-[28rem]">
-          <UFormField label="Period">
-            <USelect
-              v-model="range"
-              :items="usageRangeOptions"
-              value-key="value"
-              class="w-full"
-            />
-          </UFormField>
-          <UFormField label="Policy">
-            <USelect
-              v-model="policyId"
-              :items="policyOptions"
-              value-key="value"
-              class="w-full"
-            />
-          </UFormField>
-        </div>
+    <div class="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <p
+        v-if="data"
+        class="text-sm text-[#62789C]"
+      >
+        {{ periodLabel }}
+      </p>
+      <div class="grid gap-3 sm:grid-cols-2 sm:min-w-[28rem]">
+        <UFormField label="Period">
+          <USelect
+            v-model="range"
+            :items="usageRangeOptions"
+            value-key="value"
+            class="w-full"
+          />
+        </UFormField>
+        <UFormField label="Policy">
+          <USelect
+            v-model="policyId"
+            :items="policyOptions"
+            value-key="value"
+            class="w-full"
+          />
+        </UFormField>
       </div>
-    </section>
+    </div>
 
     <UAlert
       v-if="error"
@@ -117,21 +116,21 @@ const periodLabel = computed(() => {
         <MetricCard
           label="Validated transactions"
           :value="String(data.totals.validated)"
-          detail="Confirmed in the selected period"
+          detail="Validated outcomes in period"
           icon="i-lucide-circle-check"
           tone="success"
         />
         <MetricCard
           label="Pending transactions"
           :value="String(data.totals.pending)"
-          detail="Still awaiting completion"
+          detail="Current pending snapshot"
           icon="i-lucide-clock-3"
           :tone="data.totals.pending ? 'warning' : 'success'"
         />
         <MetricCard
-          label="Failed transactions"
+          label="Unsuccessful transactions"
           :value="String(data.totals.failed)"
-          detail="Confirmed unsuccessful outcomes"
+          detail="Failed or otherwise unsuccessful outcomes"
           icon="i-lucide-circle-x"
           :tone="data.totals.failed ? 'warning' : 'success'"
         />
@@ -145,48 +144,53 @@ const periodLabel = computed(() => {
         <MetricCard
           label="Fees spent"
           :value="formatDropsAsXrp(data.totals.feeSpentDrops)"
-          detail="Confirmed funding captures"
+          detail="Captured fees in period"
           icon="i-lucide-receipt"
         />
         <MetricCard
           label="Locked reserve"
           :value="formatDropsAsXrp(data.reserves.lockedDrops)"
-          detail="Active project obligations"
+          :detail="reserveDetail"
           icon="i-lucide-anchor"
         />
         <MetricCard
           label="Pending reserve"
           :value="formatDropsAsXrp(data.reserves.pendingDrops)"
-          detail="Reserved for in-flight intents"
+          :detail="reserveDetail"
           icon="i-lucide-hourglass"
           :tone="data.reserves.pendingDrops !== '0' ? 'warning' : 'success'"
         />
       </div>
 
       <section class="acme-card mt-6 p-5 sm:p-6">
-        <div class="flex flex-wrap items-start justify-between gap-4">
+        <h2 class="font-semibold">
+          Usage over time
+        </h2>
+        <div class="mt-5 grid gap-8 lg:grid-cols-2">
           <div>
-            <p class="acme-kicker">
-              Confirmed activity
-            </p>
-            <h2 class="mt-1 font-semibold">
-              Sponsorship outcomes
-            </h2>
-            <p class="mt-1 text-sm text-[#62789C]">
-              UTC buckets show intents created in the selected period; fees are counted only after a durable funding capture.
-            </p>
+            <h3 class="text-sm font-medium text-[#233B64]">
+              Transactions
+            </h3>
+            <div class="mt-3">
+              <UsageChart
+                :series="data.series"
+                :range="data.period.range"
+                mode="transactions"
+              />
+            </div>
           </div>
-          <UBadge
-            :label="data.period.range"
-            color="neutral"
-            variant="subtle"
-          />
-        </div>
-        <div class="mt-5">
-          <UsageChart
-            :series="data.series"
-            :range="data.period.range"
-          />
+          <div>
+            <h3 class="text-sm font-medium text-[#233B64]">
+              Fees spent
+            </h3>
+            <div class="mt-3">
+              <UsageChart
+                :series="data.series"
+                :range="data.period.range"
+                mode="fees"
+              />
+            </div>
+          </div>
         </div>
       </section>
     </template>

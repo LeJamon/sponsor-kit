@@ -2,11 +2,19 @@
 import { formatDropsAsXrp } from '~/utils/format'
 import type { UsageRange, UsageSeriesPoint } from '~/utils/usage'
 
-const props = defineProps<{ series: UsageSeriesPoint[], range: UsageRange }>()
+type UsageChartMode = 'transactions' | 'fees'
+
+const props = withDefaults(defineProps<{
+  series: UsageSeriesPoint[]
+  range: UsageRange
+  mode?: UsageChartMode
+}>(), {
+  mode: 'transactions'
+})
 
 const chartWidth = 760
 const chartHeight = 300
-const margin = { top: 28, right: 30, bottom: 48, left: 46 }
+const margin = { top: 28, right: 30, bottom: 48, left: 68 }
 const plotWidth = chartWidth - margin.left - margin.right
 const plotHeight = chartHeight - margin.top - margin.bottom
 
@@ -24,21 +32,31 @@ const chart = computed(() => {
     failed: Math.max(0, point.failed),
     feeDrops: BigInt(point.feeSpentDrops)
   }))
-  const maxCount = Math.max(1, ...points.map(point => point.validated + point.failed))
+  const maxCount = Math.max(0, ...points.map(point => point.validated + point.failed))
   const maxFeeDrops = points.reduce((maximum, point) => point.feeDrops > maximum ? point.feeDrops : maximum, 0n)
-  const hasActivity = points.some(point => point.validated > 0 || point.failed > 0 || point.feeDrops > 0n)
+  const hasActivity = props.mode === 'fees'
+    ? points.some(point => point.feeDrops > 0n)
+    : points.some(point => point.validated > 0 || point.failed > 0)
   const slotWidth = points.length ? plotWidth / points.length : plotWidth
   const barWidth = Math.max(2, Math.min(22, slotWidth * 0.25))
-  const feeScale = maxFeeDrops > 0n ? Number(maxFeeDrops) : 1
-  const feePoints = points.map((point) => {
-    const x = margin.left + slotWidth * (point.index + 0.5)
-    const y = margin.top + plotHeight - Math.min(1, Number(point.feeDrops) / feeScale) * plotHeight
-    return `${x},${y}`
-  }).join(' ')
-  return { points, maxCount, maxFeeDrops, hasActivity, slotWidth, barWidth, feePoints }
+  return { points, maxCount, maxFeeDrops, hasActivity, slotWidth, barWidth }
 })
 
-const yTicks = computed(() => [0, Math.ceil(chart.value.maxCount / 2), chart.value.maxCount])
+const yTicks = computed(() => {
+  if (props.mode === 'fees') {
+    const maximum = chart.value.maxFeeDrops
+    const values = [0n, maximum / 2n, maximum]
+    return [...new Set(values.map(value => value.toString()))].map((key) => {
+      const value = BigInt(key)
+      return { key: `fee-${key}`, value, label: formatDropsAsXrp(key) }
+    })
+  }
+
+  const maximum = chart.value.maxCount
+  const values = [0, Math.floor(maximum / 2), maximum]
+  return [...new Set(values)].map(value => ({ key: `count-${value}`, value, label: String(value) }))
+})
+
 const xTickIndexes = computed(() => {
   if (props.series.length <= 6) return props.series.map((_, index) => index)
   const step = Math.max(1, Math.ceil(props.series.length / 6))
@@ -47,19 +65,44 @@ const xTickIndexes = computed(() => {
   if (indexes.at(-1) !== props.series.length - 1) indexes.push(props.series.length - 1)
   return indexes
 })
-const hasActivity = computed(() => chart.value.hasActivity)
-const ariaLabel = computed(() => `${props.range} sponsorship activity chart with ${props.series.reduce((total, point) => total + point.validated, 0)} validated and ${props.series.reduce((total, point) => total + point.failed, 0)} failed transactions.`)
 
-function yForCount(value: number) {
-  return margin.top + plotHeight - (value / chart.value.maxCount) * plotHeight
+const hasActivity = computed(() => chart.value.hasActivity)
+const ariaLabel = computed(() => {
+  if (props.mode === 'fees') {
+    const feeSpentDrops = chart.value.points.reduce((total, point) => total + point.feeDrops, 0n)
+    return `${props.range} sponsorship fees chart with ${formatDropsAsXrp(feeSpentDrops.toString())} spent.`
+  }
+  const validated = chart.value.points.reduce((total, point) => total + point.validated, 0)
+  const failed = chart.value.points.reduce((total, point) => total + point.failed, 0)
+  return `${props.range} sponsorship transactions chart with ${validated} validated and ${failed} unsuccessful transactions.`
+})
+
+function ratioFor(value: number | bigint) {
+  if (props.mode === 'fees') {
+    const maximum = chart.value.maxFeeDrops
+    if (maximum <= 0n) return 0
+    // Scale with integer arithmetic before converting to SVG coordinates so
+    // large drop values never pass through an unsafe Number conversion.
+    return Number((BigInt(value) * 1_000_000n) / maximum) / 1_000_000
+  }
+  const maximum = Math.max(1, chart.value.maxCount)
+  return Number(value) / maximum
+}
+
+function yForValue(value: number | bigint) {
+  return margin.top + plotHeight - ratioFor(value) * plotHeight
 }
 
 function xForBar(index: number, offset: number) {
   return margin.left + chart.value.slotWidth * index + (chart.value.slotWidth - chart.value.barWidth * 2 - 3) / 2 + offset
 }
 
-function heightForCount(value: number) {
-  return (value / chart.value.maxCount) * plotHeight
+function xForFeeBar(index: number) {
+  return margin.left + chart.value.slotWidth * index + (chart.value.slotWidth - chart.value.barWidth) / 2
+}
+
+function heightForValue(value: number | bigint) {
+  return ratioFor(value) * plotHeight
 }
 
 function formatXAxis(timestamp: string) {
@@ -74,22 +117,12 @@ function formatPointXAxis(index: number) {
 
 <template>
   <div>
-    <div
+    <p
       v-if="!hasActivity"
-      class="rounded-xl border border-dashed border-[#D9E5F7] px-5 py-12 text-center"
+      class="py-10 text-center text-sm text-[#62789C]"
     >
-      <UIcon
-        name="i-lucide-chart-no-axes-combined"
-        class="size-7 text-[#8BA1C3]"
-        aria-hidden="true"
-      />
-      <p class="mt-3 font-medium">
-        No confirmed activity in this period
-      </p>
-      <p class="mt-1 text-sm text-[#62789C]">
-        Validated and failed transactions will appear here after ledger confirmation.
-      </p>
-    </div>
+      No activity in this period
+    </p>
     <figure
       v-else
       class="overflow-hidden"
@@ -105,11 +138,11 @@ function formatPointXAxis(index: number) {
       >
         <line
           v-for="tick in yTicks"
-          :key="`grid-${tick}`"
+          :key="`grid-${tick.key}`"
           :x1="margin.left"
           :x2="chartWidth - margin.right"
-          :y1="yForCount(tick)"
-          :y2="yForCount(tick)"
+          :y1="yForValue(tick.value)"
+          :y2="yForValue(tick.value)"
           stroke="#E9F0FA"
           stroke-width="1"
         />
@@ -131,53 +164,47 @@ function formatPointXAxis(index: number) {
         />
         <text
           v-for="tick in yTicks"
-          :key="`label-${tick}`"
+          :key="`label-${tick.key}`"
           :x="margin.left - 10"
-          :y="yForCount(tick) + 4"
+          :y="yForValue(tick.value) + 4"
           text-anchor="end"
           fill="#62789C"
           font-size="11"
-        >{{ tick }}</text>
+        >{{ tick.label }}</text>
         <g
           v-for="point in chart.points"
-          :key="point.timestamp"
+          :key="`${point.timestamp}-${point.index}`"
         >
-          <title>{{ formatXAxis(point.timestamp) }} · {{ point.validated }} validated · {{ point.failed }} failed · {{ formatDropsAsXrp(point.feeSpentDrops) }} fees</title>
+          <title v-if="mode === 'fees'">{{ formatXAxis(point.timestamp) }} · {{ formatDropsAsXrp(point.feeSpentDrops) }} fees spent</title>
+          <title v-else>{{ formatXAxis(point.timestamp) }} · {{ point.validated }} validated · {{ point.failed }} unsuccessful</title>
+          <template v-if="mode === 'transactions'">
+            <rect
+              :x="xForBar(point.index, 0)"
+              :y="yForValue(point.validated)"
+              :width="chart.barWidth"
+              :height="heightForValue(point.validated)"
+              rx="2"
+              fill="#0A3DFF"
+            />
+            <rect
+              :x="xForBar(point.index, chart.barWidth + 3)"
+              :y="yForValue(point.failed)"
+              :width="chart.barWidth"
+              :height="heightForValue(point.failed)"
+              rx="2"
+              fill="#C9475C"
+            />
+          </template>
           <rect
-            :x="xForBar(point.index, 0)"
-            :y="yForCount(point.validated)"
+            v-else
+            :x="xForFeeBar(point.index)"
+            :y="yForValue(point.feeDrops)"
             :width="chart.barWidth"
-            :height="heightForCount(point.validated)"
+            :height="heightForValue(point.feeDrops)"
             rx="2"
-            fill="#0A3DFF"
-          />
-          <rect
-            :x="xForBar(point.index, chart.barWidth + 3)"
-            :y="yForCount(point.failed)"
-            :width="chart.barWidth"
-            :height="heightForCount(point.failed)"
-            rx="2"
-            fill="#C9475C"
+            fill="#168A63"
           />
         </g>
-        <polyline
-          v-if="chart.maxFeeDrops > 0n"
-          :points="chart.feePoints"
-          fill="none"
-          stroke="#168A63"
-          stroke-width="2.5"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-        <circle
-          v-for="point in chart.points"
-          v-show="point.feeDrops > 0n"
-          :key="`fee-${point.timestamp}`"
-          :cx="margin.left + chart.slotWidth * (point.index + 0.5)"
-          :cy="margin.top + plotHeight - Math.min(1, Number(point.feeDrops) / (chart.maxFeeDrops > 0n ? Number(chart.maxFeeDrops) : 1)) * plotHeight"
-          r="3"
-          fill="#168A63"
-        />
         <text
           v-for="index in xTickIndexes"
           :key="`x-${index}`"
@@ -189,16 +216,21 @@ function formatPointXAxis(index: number) {
         >{{ formatPointXAxis(index) }}</text>
       </svg>
       <div class="mt-2 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-[#62789C]">
-        <span class="inline-flex items-center gap-1.5"><span
-          class="size-2 rounded-sm bg-[#0A3DFF]"
-          aria-hidden="true"
-        />Validated</span>
-        <span class="inline-flex items-center gap-1.5"><span
-          class="size-2 rounded-sm bg-[#C9475C]"
-          aria-hidden="true"
-        />Failed</span>
-        <span class="inline-flex items-center gap-1.5"><span
-          class="h-0.5 w-3 rounded-full bg-[#168A63]"
+        <template v-if="mode === 'transactions'">
+          <span class="inline-flex items-center gap-1.5"><span
+            class="size-2 rounded-sm bg-[#0A3DFF]"
+            aria-hidden="true"
+          />Validated</span>
+          <span class="inline-flex items-center gap-1.5"><span
+            class="size-2 rounded-sm bg-[#C9475C]"
+            aria-hidden="true"
+          />Unsuccessful</span>
+        </template>
+        <span
+          v-else
+          class="inline-flex items-center gap-1.5"
+        ><span
+          class="size-2 rounded-sm bg-[#168A63]"
           aria-hidden="true"
         />Fees spent</span>
       </div>

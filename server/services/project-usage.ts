@@ -1,8 +1,6 @@
-import { and, asc, eq, gte, lt } from 'drizzle-orm'
+import { asc, eq, sql } from 'drizzle-orm'
 import {
-  fundingLedgerEntries,
   projectFundingBudgets,
-  sponsorshipIntents,
   sponsorshipPolicies
 } from '../database/schema'
 import { useDatabase } from '../utils/database'
@@ -10,7 +8,6 @@ import { useDatabase } from '../utils/database'
 export const PROJECT_USAGE_RANGES = ['24h', '7d', '30d'] as const
 export type ProjectUsageRange = typeof PROJECT_USAGE_RANGES[number]
 
-type UsageIntentState = typeof sponsorshipIntents.state.enumValues[number]
 type UsagePolicyStatus = typeof sponsorshipPolicies.status.enumValues[number]
 
 export type ProjectUsagePolicy = {
@@ -49,53 +46,44 @@ export type ProjectUsage = {
   policies: ProjectUsagePolicy[]
 }
 
-type UsagePeriod = {
+export type ProjectUsagePeriod = {
   range: ProjectUsageRange
   from: Date
   to: Date
   bucketMilliseconds: number
+  firstBucketMilliseconds: number
   bucketCount: number
 }
 
-const pendingStates = new Set<UsageIntentState>([
-  'created',
-  'awaiting_user_signature',
-  'user_signature_received',
-  'verified',
-  'awaiting_sponsor_signature',
-  'submitting',
-  'submitted'
-])
+const HOUR_MILLISECONDS = 60 * 60 * 1_000
+const DAY_MILLISECONDS = 24 * HOUR_MILLISECONDS
 
-const failedStates = new Set<UsageIntentState>([
-  'failed',
-  'rejected',
-  'expired',
-  'cancelled',
-  'superseded'
-])
-
-const periodConfig: Record<ProjectUsageRange, { bucketMilliseconds: number, bucketCount: number }> = {
-  '24h': { bucketMilliseconds: 60 * 60 * 1_000, bucketCount: 24 },
-  '7d': { bucketMilliseconds: 24 * 60 * 60 * 1_000, bucketCount: 7 },
-  '30d': { bucketMilliseconds: 24 * 60 * 60 * 1_000, bucketCount: 30 }
+const periodConfig: Record<ProjectUsageRange, { durationMilliseconds: number, bucketMilliseconds: number }> = {
+  '24h': { durationMilliseconds: DAY_MILLISECONDS, bucketMilliseconds: HOUR_MILLISECONDS },
+  '7d': { durationMilliseconds: 7 * DAY_MILLISECONDS, bucketMilliseconds: DAY_MILLISECONDS },
+  '30d': { durationMilliseconds: 30 * DAY_MILLISECONDS, bucketMilliseconds: DAY_MILLISECONDS }
 }
 
 /**
- * Usage windows are anchored to UTC bucket boundaries. This keeps the series
- * stable when the request arrives near a clock boundary while `to` remains
- * the actual request time.
+ * Reporting periods are trailing windows ending at the request time. Series
+ * buckets are UTC-aligned and include every bucket that intersects the
+ * half-open period, including the partial first and last buckets.
  */
-export function projectUsagePeriod(range: ProjectUsageRange, now = new Date()): UsagePeriod {
+export function projectUsagePeriod(range: ProjectUsageRange, now = new Date()): ProjectUsagePeriod {
   const config = periodConfig[range]
   const toMilliseconds = now.getTime()
-  const currentBucket = Math.floor(toMilliseconds / config.bucketMilliseconds) * config.bucketMilliseconds
-  const fromMilliseconds = currentBucket - (config.bucketCount - 1) * config.bucketMilliseconds
+  const fromMilliseconds = toMilliseconds - config.durationMilliseconds
+  const firstBucketMilliseconds = Math.floor(fromMilliseconds / config.bucketMilliseconds) * config.bucketMilliseconds
+  const lastBucketMilliseconds = Math.floor((toMilliseconds - 1) / config.bucketMilliseconds) * config.bucketMilliseconds
+  const bucketCount = Math.max(1, Math.floor((lastBucketMilliseconds - firstBucketMilliseconds) / config.bucketMilliseconds) + 1)
+
   return {
     range,
     from: new Date(fromMilliseconds),
     to: new Date(toMilliseconds),
-    ...config
+    bucketMilliseconds: config.bucketMilliseconds,
+    firstBucketMilliseconds,
+    bucketCount
   }
 }
 
@@ -103,23 +91,57 @@ function nonNegative(value: bigint): bigint {
   return value > 0n ? value : 0n
 }
 
-function bucketIndex(value: Date, period: UsagePeriod): number | undefined {
-  const index = Math.floor((value.getTime() - period.from.getTime()) / period.bucketMilliseconds)
-  return index >= 0 && index < period.bucketCount ? index : undefined
-}
-
 function percentage(validated: number, failed: number): number | null {
   const outcomes = BigInt(validated + failed)
   if (outcomes === 0n) return null
   // Keep two decimal places without introducing floating point drift while
   // preserving a percentage representation for the console UI.
-  return Number((BigInt(validated) * 10_000n / outcomes)) / 100
+  return Number((BigInt(validated) * 10_000n) / outcomes) / 100
+}
+
+function bucketUnit(period: ProjectUsagePeriod) {
+  return sql.raw(period.bucketMilliseconds === HOUR_MILLISECONDS ? `'hour'` : `'day'`)
+}
+
+function policyFilter(policyId: string | undefined) {
+  return policyId ? sql`and i."policy_id" = ${policyId}` : sql``
+}
+
+function aggregateDate(value: Date | string): Date {
+  if (value instanceof Date) return value
+  const text = String(value)
+  return new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(text) ? text : `${text}Z`)
+}
+
+function aggregateCount(value: string | number | bigint | null | undefined): number {
+  return Number(value || 0)
+}
+
+function aggregateDrops(value: string | number | bigint | null | undefined): bigint {
+  return BigInt(value || 0)
+}
+
+type OutcomeAggregateRow = {
+  bucket: Date | string
+  validated: string | number | bigint
+  failed: string | number | bigint
+}
+
+type FeeAggregateRow = {
+  bucket: Date | string
+  feeSpentDrops: string | number | bigint
+}
+
+type PendingAggregateRow = {
+  pending: string | number | bigint
 }
 
 /**
  * Read project usage from persisted intent and funding records. The method
  * intentionally does not call XRPL: a usage dashboard must reflect durable
- * accounting, and every capture entry is idempotent per intent.
+ * accounting. Aggregates stay bounded by the requested UTC bucket count and
+ * capture entries are deduplicated by intent before their actual fees are
+ * summed.
  */
 export async function readProjectUsage(input: {
   projectId: string
@@ -129,83 +151,103 @@ export async function readProjectUsage(input: {
 }): Promise<ProjectUsage> {
   const database = useDatabase()
   const period = projectUsagePeriod(input.range, input.now)
-  const intentFilters = [
-    eq(sponsorshipIntents.projectId, input.projectId),
-    gte(sponsorshipIntents.createdAt, period.from),
-    lt(sponsorshipIntents.createdAt, period.to)
-  ]
-  if (input.policyId) intentFilters.push(eq(sponsorshipIntents.policyId, input.policyId))
+  const policyCondition = policyFilter(input.policyId)
+  const unit = bucketUnit(period)
 
-  const [policies, intents, budgetRows] = await Promise.all([
+  const [policies, outcomeRows, feeRows, pendingRows, budgetRows] = await Promise.all([
     database.select({ id: sponsorshipPolicies.id, name: sponsorshipPolicies.name, version: sponsorshipPolicies.version, status: sponsorshipPolicies.status })
       .from(sponsorshipPolicies)
       .where(eq(sponsorshipPolicies.projectId, input.projectId))
       .orderBy(asc(sponsorshipPolicies.name), asc(sponsorshipPolicies.version)),
-    database.select({ id: sponsorshipIntents.id, state: sponsorshipIntents.state, createdAt: sponsorshipIntents.createdAt })
-      .from(sponsorshipIntents)
-      .where(and(...intentFilters)),
+    database.execute<OutcomeAggregateRow>(sql`
+      select
+        date_trunc(${unit}, i."updated_at" at time zone 'UTC') at time zone 'UTC' as bucket,
+        count(*) filter (where i."state" = 'validated')::text as validated,
+        count(*) filter (where i."state" in ('failed', 'rejected', 'expired', 'cancelled', 'superseded'))::text as failed
+      from "sponsorship_intents" i
+      where i."project_id" = ${input.projectId}
+        and i."updated_at" > ${period.from.toISOString()}
+        and i."updated_at" < ${period.to.toISOString()}
+        ${policyCondition}
+      group by 1
+      order by 1
+    `),
+    database.execute<FeeAggregateRow>(sql`
+      with captures as (
+        select distinct on (f."intent_id")
+          f."intent_id",
+          f."created_at",
+          f."fee_drops"
+        from "funding_ledger_entries" f
+        inner join "sponsorship_intents" i on i."id" = f."intent_id"
+        where i."project_id" = ${input.projectId}
+          and f."type" = 'capture'
+          and f."created_at" > ${period.from.toISOString()}
+          and f."created_at" < ${period.to.toISOString()}
+          ${policyCondition}
+        order by f."intent_id", f."created_at", f."id"
+      )
+      select
+        date_trunc(${unit}, c."created_at" at time zone 'UTC') at time zone 'UTC' as bucket,
+        coalesce(sum(c."fee_drops"), 0)::text as "feeSpentDrops"
+      from captures c
+      group by 1
+      order by 1
+    `),
+    database.execute<PendingAggregateRow>(sql`
+      select count(*)::text as pending
+      from "sponsorship_intents" i
+      where i."project_id" = ${input.projectId}
+        and i."state" in ('created', 'awaiting_user_signature', 'user_signature_received', 'verified', 'awaiting_sponsor_signature', 'submitting', 'submitted')
+        ${policyCondition}
+    `),
     database.select({ reserveReservedDrops: projectFundingBudgets.reserveReservedDrops, reserveExposureDrops: projectFundingBudgets.reserveExposureDrops })
       .from(projectFundingBudgets)
       .where(eq(projectFundingBudgets.projectId, input.projectId))
       .limit(1)
   ])
 
-  const captures = intents.length
-    ? await database.select({ intentId: fundingLedgerEntries.intentId, feeDrops: fundingLedgerEntries.feeDrops, createdAt: fundingLedgerEntries.createdAt })
-        .from(fundingLedgerEntries)
-        .innerJoin(sponsorshipIntents, eq(sponsorshipIntents.id, fundingLedgerEntries.intentId))
-        .where(and(
-          eq(sponsorshipIntents.projectId, input.projectId),
-          gte(sponsorshipIntents.createdAt, period.from),
-          lt(sponsorshipIntents.createdAt, period.to),
-          eq(fundingLedgerEntries.type, 'capture'),
-          ...(input.policyId ? [eq(sponsorshipIntents.policyId, input.policyId)] : [])
-        ))
-        .orderBy(asc(fundingLedgerEntries.createdAt), asc(fundingLedgerEntries.id))
-    : []
-
-  // A capture is unique by the worker's intent idempotency key. Keeping the
-  // first row also prevents a malformed legacy duplicate from inflating UI
-  // totals if one is encountered before it can be reconciled.
-  const captureByIntent = new Map<string, { feeDrops: bigint }>()
-  for (const capture of captures) {
-    if (!capture.intentId || captureByIntent.has(capture.intentId)) continue
-    captureByIntent.set(capture.intentId, { feeDrops: BigInt(capture.feeDrops) })
-  }
-
   const series = Array.from({ length: period.bucketCount }, (_, index): ProjectUsageSeriesPoint => ({
-    timestamp: new Date(period.from.getTime() + index * period.bucketMilliseconds).toISOString(),
+    timestamp: new Date(period.firstBucketMilliseconds + index * period.bucketMilliseconds).toISOString(),
     validated: 0,
     failed: 0,
     feeSpentDrops: '0'
   }))
+
   let validated = 0
-  let pending = 0
   let failed = 0
   let feeSpentDrops = 0n
 
-  for (const intent of intents) {
-    if (intent.state === 'validated') validated += 1
-    else if (pendingStates.has(intent.state)) pending += 1
-    else if (failedStates.has(intent.state)) failed += 1
-
-    const index = bucketIndex(intent.createdAt, period)
-    if (index === undefined) continue
+  for (const row of outcomeRows) {
+    const bucket = aggregateDate(row.bucket).getTime()
+    const index = Math.floor((bucket - period.firstBucketMilliseconds) / period.bucketMilliseconds)
+    if (index < 0 || index >= series.length) continue
     const point = series[index]
     if (!point) continue
-    if (intent.state === 'validated') point.validated += 1
-    else if (failedStates.has(intent.state)) point.failed += 1
-    const capture = captureByIntent.get(intent.id)
-    if (capture) {
-      feeSpentDrops += capture.feeDrops
-      point.feeSpentDrops = (BigInt(point.feeSpentDrops) + capture.feeDrops).toString()
-    }
+    const rowValidated = aggregateCount(row.validated)
+    const rowFailed = aggregateCount(row.failed)
+    validated += rowValidated
+    failed += rowFailed
+    point.validated += rowValidated
+    point.failed += rowFailed
+  }
+
+  for (const row of feeRows) {
+    const bucket = aggregateDate(row.bucket).getTime()
+    const index = Math.floor((bucket - period.firstBucketMilliseconds) / period.bucketMilliseconds)
+    if (index < 0 || index >= series.length) continue
+    const point = series[index]
+    if (!point) continue
+    const rowFees = aggregateDrops(row.feeSpentDrops)
+    feeSpentDrops += rowFees
+    point.feeSpentDrops = (BigInt(point.feeSpentDrops) + rowFees).toString()
   }
 
   const budget = budgetRows[0]
   const pendingReserveDrops = budget?.reserveReservedDrops || 0n
   const exposureDrops = budget?.reserveExposureDrops || 0n
   const lockedReserveDrops = nonNegative(exposureDrops - pendingReserveDrops)
+  const pending = aggregateCount(pendingRows[0]?.pending)
 
   return {
     period: { range: period.range, from: period.from.toISOString(), to: period.to.toISOString() },

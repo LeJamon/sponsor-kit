@@ -37,6 +37,7 @@ describe.skipIf(!runDatabaseTests)('project usage accounting', () => {
     policyB: randomUUID()
   }
   const now = new Date('2026-01-11T12:34:56.000Z')
+  const dayMilliseconds = 24 * 60 * 60 * 1_000
 
   beforeAll(async () => {
     if (!database) return
@@ -87,9 +88,9 @@ describe.skipIf(!runDatabaseTests)('project usage accounting', () => {
     projectId: string
     sponsorAccountId: string
     policyId: string
-    state: 'validated' | 'failed' | 'submitting'
+    state: 'validated' | 'failed' | 'rejected' | 'submitting'
     createdAt: Date
-    fee?: bigint
+    updatedAt?: Date
   }) {
     return {
       id: input.id,
@@ -106,47 +107,55 @@ describe.skipIf(!runDatabaseTests)('project usage accounting', () => {
       preparedLedgerIndex: 1,
       requestHash: `usage-request-${input.id}`,
       policySnapshot: {},
-      estimatedFeeDrops: input.fee || 10n,
+      estimatedFeeDrops: 10n,
       estimatedReserveDrops: 0n,
       idempotencyKey: `usage-intent-${input.id}`,
       correlationId: `usage-correlation-${input.id}`,
       state: input.state,
       expiresAt: new Date(input.createdAt.getTime() + 60 * 60 * 1_000),
       createdAt: input.createdAt,
-      updatedAt: input.createdAt
+      updatedAt: input.updatedAt || input.createdAt
     }
   }
 
-  it('counts confirmed captures once and keeps project reserves isolated', async () => {
+  it('uses terminal update time, capture time, and current pending state without crossing project boundaries', async () => {
     if (!database) return
+    const from = new Date(now.getTime() - dayMilliseconds)
     const validA = randomUUID()
     const failedA = randomUUID()
     const pendingA = randomUUID()
     const oldA = randomUUID()
+    const exactFromA = randomUUID()
     const validB = randomUUID()
-    const intents = [
-      makeIntent({ id: validA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T11:30:00.000Z') }),
-      makeIntent({ id: failedA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyB, state: 'failed', createdAt: new Date('2026-01-11T10:30:00.000Z') }),
-      makeIntent({ id: pendingA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'submitting', createdAt: new Date('2026-01-11T09:30:00.000Z') }),
-      makeIntent({ id: oldA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-09T12:00:00.000Z') }),
-      makeIntent({ id: validB, projectId: ids.projectB, sponsorAccountId: ids.accountB, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T11:30:00.000Z') })
-    ]
-    await database.insert(sponsorshipIntents).values(intents)
+    await database.insert(sponsorshipIntents).values([
+      // The request was old, but its terminal outcome is inside the window.
+      makeIntent({ id: validA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-09T12:00:00.000Z'), updatedAt: new Date('2026-01-11T11:30:00.000Z') }),
+      makeIntent({ id: failedA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyB, state: 'rejected', createdAt: new Date('2026-01-11T10:00:00.000Z'), updatedAt: new Date('2026-01-11T10:30:00.000Z') }),
+      // Pending is a current snapshot, even when the request predates the window.
+      makeIntent({ id: pendingA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'submitting', createdAt: new Date('2026-01-09T09:30:00.000Z'), updatedAt: new Date('2026-01-09T09:30:00.000Z') }),
+      // This old terminal outcome is outside the period; its delayed capture is not.
+      makeIntent({ id: oldA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-09T12:00:00.000Z'), updatedAt: new Date('2026-01-09T12:00:00.000Z') }),
+      // The exact lower bound must exclude this outcome and capture.
+      makeIntent({ id: exactFromA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T12:00:00.000Z'), updatedAt: from }),
+      makeIntent({ id: validB, projectId: ids.projectB, sponsorAccountId: ids.accountB, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T11:00:00.000Z'), updatedAt: new Date('2026-01-11T11:30:00.000Z') })
+    ])
     await database.insert(fundingLedgerEntries).values([
       { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: validA, type: 'capture', feeDrops: 7n, idempotencyKey: `capture-${validA}-first`, createdAt: new Date('2026-01-11T11:31:00.000Z') },
       { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: validA, type: 'capture', feeDrops: 99n, idempotencyKey: `capture-${validA}-duplicate`, createdAt: new Date('2026-01-11T11:32:00.000Z') },
       { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: failedA, type: 'capture', feeDrops: 3n, idempotencyKey: `capture-${failedA}`, createdAt: new Date('2026-01-11T10:31:00.000Z') },
-      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: oldA, type: 'capture', feeDrops: 101n, idempotencyKey: `capture-${oldA}`, createdAt: new Date('2026-01-09T12:01:00.000Z') },
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: oldA, type: 'capture', feeDrops: 101n, idempotencyKey: `capture-${oldA}`, createdAt: new Date('2026-01-11T12:00:00.000Z') },
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: exactFromA, type: 'capture', feeDrops: 77n, idempotencyKey: `capture-${exactFromA}`, createdAt: from },
       { sponsorAccountId: ids.accountB, treasuryId: ids.treasury, intentId: validB, type: 'capture', feeDrops: 55n, idempotencyKey: `capture-${validB}`, createdAt: new Date('2026-01-11T11:31:00.000Z') }
     ])
 
     const usageA = await readProjectUsage({ projectId: ids.projectA, range: '24h', now })
-    expect(usageA.totals).toEqual({ validated: 1, pending: 1, failed: 1, successRate: 50, feeSpentDrops: '10' })
+    expect(usageA.period).toEqual({ range: '24h', from: from.toISOString(), to: now.toISOString() })
+    expect(usageA.totals).toEqual({ validated: 1, pending: 1, failed: 1, successRate: 50, feeSpentDrops: '111' })
     expect(usageA.reserves).toEqual({ lockedDrops: '20', pendingDrops: '11' })
-    expect(usageA.series).toHaveLength(24)
+    expect(usageA.series).toHaveLength(25)
     expect(usageA.series.reduce((total, point) => total + point.validated, 0)).toBe(1)
     expect(usageA.series.reduce((total, point) => total + point.failed, 0)).toBe(1)
-    expect(usageA.series.reduce((total, point) => total + BigInt(point.feeSpentDrops), 0n)).toBe(10n)
+    expect(usageA.series.reduce((total, point) => total + BigInt(point.feeSpentDrops), 0n)).toBe(111n)
 
     const usageB = await readProjectUsage({ projectId: ids.projectB, range: '24h', now })
     expect(usageB.totals).toMatchObject({ validated: 1, pending: 0, failed: 0, feeSpentDrops: '55' })
@@ -154,29 +163,34 @@ describe.skipIf(!runDatabaseTests)('project usage accounting', () => {
     expect(usageB.policies).toHaveLength(0)
   })
 
-  it('filters intents by a project policy without exposing another policy scope', async () => {
+  it('filters all aggregates by a project policy and returns a safe foreign-policy result', async () => {
     if (!database) return
     const validA = randomUUID()
     const failedA = randomUUID()
     await database.insert(sponsorshipIntents).values([
-      makeIntent({ id: validA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T11:30:00.000Z') }),
-      makeIntent({ id: failedA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyB, state: 'failed', createdAt: new Date('2026-01-11T10:30:00.000Z') })
+      makeIntent({ id: validA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T11:30:00.000Z'), updatedAt: new Date('2026-01-11T11:30:00.000Z') }),
+      makeIntent({ id: failedA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyB, state: 'failed', createdAt: new Date('2026-01-11T10:30:00.000Z'), updatedAt: new Date('2026-01-11T10:30:00.000Z') })
     ])
     await database.insert(fundingLedgerEntries).values([
-      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: validA, type: 'capture', feeDrops: 7n, idempotencyKey: `capture-${validA}` },
-      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: failedA, type: 'capture', feeDrops: 3n, idempotencyKey: `capture-${failedA}` }
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: validA, type: 'capture', feeDrops: 7n, idempotencyKey: `capture-${validA}`, createdAt: new Date('2026-01-11T11:31:00.000Z') },
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: failedA, type: 'capture', feeDrops: 3n, idempotencyKey: `capture-${failedA}`, createdAt: new Date('2026-01-11T10:31:00.000Z') }
     ])
 
     const usageA = await readProjectUsage({ projectId: ids.projectA, range: '24h', policyId: ids.policyA, now })
     expect(usageA.totals).toEqual({ validated: 1, pending: 0, failed: 0, successRate: 100, feeSpentDrops: '7' })
     expect(usageA.policies.map(policy => policy.id)).toEqual([ids.policyA, ids.policyB])
+
+    const foreignPolicyUsage = await readProjectUsage({ projectId: ids.projectB, range: '24h', policyId: ids.policyA, now })
+    expect(foreignPolicyUsage.totals).toEqual({ validated: 0, pending: 0, failed: 0, successRate: null, feeSpentDrops: '0' })
+    expect(foreignPolicyUsage.policies).toEqual([])
   })
 
-  it('returns a null success rate and zero-filled series with no outcomes', async () => {
+  it('returns a null success rate and zero-filled intersecting buckets with no outcomes', async () => {
     if (!database) return
     const usage = await readProjectUsage({ projectId: ids.projectA, range: '7d', now })
     expect(usage.totals).toEqual({ validated: 0, pending: 0, failed: 0, successRate: null, feeSpentDrops: '0' })
-    expect(usage.series).toHaveLength(7)
+    expect(usage.period.from).toBe(new Date(now.getTime() - 7 * dayMilliseconds).toISOString())
+    expect(usage.series).toHaveLength(8)
     expect(usage.series.every(point => point.validated === 0 && point.failed === 0 && point.feeSpentDrops === '0')).toBe(true)
   })
 })
