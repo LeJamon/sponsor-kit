@@ -4,6 +4,7 @@ import { formatDateTime, formatDropsAsXrp, shortenAddress } from '~/utils/format
 const requestFetch = useRequestFetch()
 
 definePageMeta({ layout: 'dashboard' })
+const createOpen = useState('project-creation-open', () => false)
 const { data: context, projectId } = await useConsoleProject()
 const { data, status, error, refresh } = await useAsyncData(`project-overview-${projectId.value}`, () => projectId.value ? requestFetch(`/api/console/projects/${projectId.value}/overview`) : Promise.resolve(null), { watch: [projectId] })
 const { data: readiness, error: readinessError, refresh: refreshReadiness } = await useFetch<{ ready: boolean }>('/api/console/readiness')
@@ -17,6 +18,7 @@ const { data: readiness, error: readinessError, refresh: refreshReadiness } = aw
       description="Validated Devnet activity, sponsor capacity, and recent intents from the backend."
     >
       <UButton
+        v-if="projectId"
         to="/app/first-payment"
         label="Make first payment"
         icon="i-lucide-send"
@@ -28,15 +30,15 @@ const { data: readiness, error: readinessError, refresh: refreshReadiness } = aw
       color="warning"
       variant="subtle"
       icon="i-lucide-panels-top-left"
-      title="Finish setting up your project"
-      description="Create the authenticated project and run live network readiness checks before using the sponsorship flow."
+      title="Create your first project"
+      description="Choose a name and network to start sponsoring transactions."
     >
       <template #actions>
         <UButton
-          to="/app/setup"
-          label="Open setup"
+          label="Create project"
           color="warning"
           variant="soft"
+          @click="createOpen = true"
         />
       </template>
     </UAlert>
@@ -214,5 +216,10 @@ const { data: readiness, error: readinessError, refresh: refreshReadiness } = aw
         </div>
       </section>
     </template>
+    <ProjectDangerZone
+      v-if="data && ['owner', 'admin'].includes(data.role)"
+      :key="data.project.publicId"
+      :project="data.project"
+    />
   </div>
 </template>

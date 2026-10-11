@@ -64,5 +64,5 @@ test('the redesigned email form signs into an existing account', async ({ page, 
   await page.getByLabel('Password', { exact: true }).fill(password)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page).toHaveURL(/\/app\/setup$/)
-  await expect(page.getByLabel('Organization name', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Create project', exact: true })).toBeVisible()
 })

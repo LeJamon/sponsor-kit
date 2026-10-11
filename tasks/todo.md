@@ -1,5 +1,18 @@
 # ACME Sponsor Kit
 
+## Project creation modal and deletion — 2026-10-11
+
+- [x] Replace standalone creation forms with a light modal for project name and Devnet network, including first/last-project flows.
+- [x] Add an owner/admin Danger zone with named confirmation and project removal.
+- [x] Enforce deletion authorization and lifecycle checks, preserve historical ledger records and shared sponsor capacity, and revoke access.
+- [x] Verify creation/retry, deletion/cancel, last-project recovery, authorization, browser layouts, and required checks.
+
+### Review
+
+Added a shared light modal with name and Devnet selection, used from the project dropdown and empty-workspace flows. The overview ends with an owner/admin Danger zone requiring the exact project name. Deletion archives the project and revokes its API keys while retaining transaction history and shared treasury capacity. Pending transactions and active reserve obligations must be resolved first. No schema migration is required.
+
+Lint, typecheck, production build, all 66 unit/API/database tests, and all 8 browser scenarios passed against a disposable local database. Verified creation and deletion after lost responses, modal cancellation, named confirmation, project permissions, last-project replacement in the same organization, and existing login/payment flows. Reviewed desktop and mobile modal screenshots. Updated CI to run deletion integration tests.
+
 ## Hover navigation — 2026-10-11
 
 - [x] Inspect the updated faucet sidebar and match its interaction model.

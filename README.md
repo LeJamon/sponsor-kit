@@ -125,10 +125,17 @@ The bootstrap requires `ACME_BOOTSTRAP_ADMIN_EMAIL` and
 The runtime image does not include migration tooling or automatically modify
 the database schema.
 Organization owners and admins can create additional projects from the console’s
-project dropdown. Each project has its own policies, API keys, and funding budget;
+project dropdown using a name-and-network modal (Devnet only). Each project has
+its own policies, API keys, and funding budget;
 projects share the configured sponsor treasury. The selected project is remembered
 in the browser. The desktop sidebar shows icons at rest and expands on hover or
 keyboard focus.
+
+The overview’s Danger zone lets owners/admins delete a project after confirming
+its name. Deletion removes it from the workspace and revokes its API keys;
+ledger and audit history are retained. Pending transactions and active reserve
+obligations must be resolved before deletion. The shared sponsor treasury is
+not deleted, and another project can be created after removing the last one.
 
 After deployment, check `/api/v1/health` for database, signer, XRPL, and worker
 health. This endpoint checks external dependencies and should not be used as

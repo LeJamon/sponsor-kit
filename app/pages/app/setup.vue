@@ -4,56 +4,10 @@ definePageMeta({ layout: 'dashboard' })
 type ReadinessCheck = { key: string, label: string, ok: boolean, detail: string }
 type Readiness = { ready: boolean, checks: ReadinessCheck[] }
 
-const { data: context, selected: project, status: contextStatus, error: contextError, refresh: refreshContext, selectProject } = await useConsoleProject()
+const { selected: project, error: contextError, refresh: refreshContext } = await useConsoleProject()
 const { data: readiness, status: readinessStatus, error: readinessError, refresh: refreshReadiness } = await useFetch<Readiness>('/api/console/readiness')
-const form = reactive({ organizationName: '' })
-const saving = ref(false)
-const errorMessage = ref('')
-const successMessage = ref('')
-
-watchEffect(() => {
-  if (!form.organizationName && context.value?.user?.name) {
-    form.organizationName = `${context.value.user.name}'s workspace`
-  }
-})
-
+const createOpen = useState('project-creation-open', () => false)
 const hasProject = computed(() => Boolean(project.value))
-
-function requestMessage(error: unknown, fallback: string) {
-  if (error && typeof error === 'object' && 'data' in error && error.data && typeof error.data === 'object' && 'statusMessage' in error.data) {
-    return String(error.data.statusMessage)
-  }
-  return error instanceof Error ? error.message : fallback
-}
-
-async function setupProject() {
-  if (form.organizationName.trim().length < 2) return
-  saving.value = true
-  errorMessage.value = ''
-  successMessage.value = ''
-  try {
-    const result = await $fetch('/api/onboarding', {
-      method: 'POST',
-      body: { organizationName: form.organizationName.trim() }
-    })
-    successMessage.value = 'Your project is ready.'
-    await Promise.all([refreshContext(), refreshReadiness()])
-    selectProject(result.project.publicId)
-    await navigateTo('/app')
-  } catch (error: unknown) {
-    // Onboarding is idempotent. A timeout can still mean that another request
-    // completed, so refresh the session before offering a retry.
-    await refreshContext()
-    if (hasProject.value) {
-      successMessage.value = 'Your project was created. Opening the console…'
-      await navigateTo('/app')
-      return
-    }
-    errorMessage.value = requestMessage(error, 'Project setup could not finish. Your account is still safe; retry when the service is available.')
-  } finally {
-    saving.value = false
-  }
-}
 
 async function retryChecks() {
   await Promise.all([refreshContext(), refreshReadiness()])
@@ -108,58 +62,16 @@ async function retryChecks() {
             Create the first project
           </h2>
           <p class="mt-1 max-w-2xl text-sm leading-6 text-[#62789C]">
-            This creates your organization, a Devnet project, its default sponsorship policy, and a connection to the configured sponsor account. It does not create another login if setup needs a retry.
+            Choose a project name and network to get started.
           </p>
         </div>
       </div>
-      <form
-        class="mt-7 max-w-xl space-y-5"
-        @submit.prevent="setupProject"
-      >
-        <UFormField
-          label="Organization name"
-          name="organizationName"
-          help="Use a short name your team will recognize."
-        >
-          <UInput
-            id="setup-organization"
-            v-model="form.organizationName"
-            autocomplete="organization"
-            class="w-full"
-            size="lg"
-            required
-          />
-        </UFormField>
-        <UAlert
-          v-if="errorMessage"
-          color="error"
-          variant="subtle"
-          title="Setup needs another try"
-          :description="errorMessage"
-        />
-        <UAlert
-          v-if="successMessage"
-          color="success"
-          variant="subtle"
-          :description="successMessage"
-        />
-        <div class="flex flex-wrap items-center gap-3">
-          <UButton
-            type="submit"
-            label="Create project"
-            trailing-icon="i-lucide-arrow-right"
-            :loading="saving"
-            :disabled="form.organizationName.trim().length < 2"
-          />
-          <UButton
-            label="Check setup status"
-            color="neutral"
-            variant="ghost"
-            :loading="contextStatus === 'pending'"
-            @click="retryChecks"
-          />
-        </div>
-      </form>
+      <UButton
+        class="mt-6"
+        label="Create project"
+        trailing-icon="i-lucide-plus"
+        @click="createOpen = true"
+      />
     </section>
 
     <template v-else>

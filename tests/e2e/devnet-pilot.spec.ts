@@ -24,7 +24,13 @@ test('a developer signs a payment in the browser and can revisit its validated o
   await page.getByLabel('Work email', { exact: true }).fill(`browser-${randomUUID()}@example.invalid`)
   await page.getByLabel('Password', { exact: true }).fill(`Browser-${randomUUID()}!`)
   await page.getByRole('checkbox').check()
-  await page.getByRole('button', { name: 'Create account', exact: true }).click()
+  // Browser cases share a loopback IP. Retry only rate-limit rejections,
+  // which cannot have created an account, while keeping the real signup UI.
+  await expect(async () => {
+    const response = page.waitForResponse(response => response.url().endsWith('/api/auth/sign-up/email'))
+    await page.getByRole('button', { name: 'Create account', exact: true }).click()
+    expect((await response).status()).not.toBe(429)
+  }).toPass({ intervals: [1000], timeout: 20_000 })
   await expect(page).toHaveURL(/\/app(?:\/setup)?$/)
   await page.goto('/app/first-payment')
   await expect(page.getByRole('button', { name: 'Generate disposable wallet', exact: true })).toBeEnabled()
@@ -105,11 +111,12 @@ test('an existing login can recover incomplete onboarding without duplicate proj
   })
   expect(signup.ok()).toBe(true)
   await page.goto('/app/setup')
-  await page.getByLabel('Organization name', { exact: true }).fill('Recovered workspace')
+  await page.getByRole('button', { name: 'Create project', exact: true }).click()
+  await page.getByRole('dialog').getByLabel('Name', { exact: true }).fill('Recovered project')
   await page.route('**/api/onboarding', route => route.fulfill({ status: 503, json: { statusMessage: 'Temporary Devnet outage' } }), { times: 1 })
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
-  await expect(page.getByText('Setup needs another try', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Create project', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.getByText('Project creation needs attention', { exact: true })).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: 'Retry creation', exact: true }).click()
   await expect(page).toHaveURL(/\/app$/)
   const repeats = await Promise.all([1, 2].map(() => page.request.post('/api/onboarding', {
     headers: { origin: baseURL! }, data: { organizationName: 'Recovered workspace' }

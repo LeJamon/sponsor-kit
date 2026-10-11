@@ -58,7 +58,7 @@ jobs:
           npm run db:migrate
           npm run db:migrate
           npm run admin:bootstrap
-          MVP_FUNDING_TEST_DATABASE_URL="$DATABASE_URL" npm run test -- tests/mvp-funding.test.ts tests/project-creation.test.ts
+          MVP_FUNDING_TEST_DATABASE_URL="$DATABASE_URL" npm run test -- tests/mvp-funding.test.ts tests/project-creation.test.ts tests/project-deletion.test.ts
 
       - name: Install browser for integration tests
         run: npx playwright install --with-deps chromium

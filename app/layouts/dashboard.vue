@@ -3,6 +3,7 @@ import { authClient } from '~~/lib/auth-client'
 
 const route = useRoute()
 const open = ref(false)
+const createOpen = useState('project-creation-open', () => false)
 const signingOut = ref(false)
 const { data: context } = await useConsoleProject()
 const { selectProject } = useProjectSelection()
@@ -27,6 +28,7 @@ async function signOut() {
   signingOut.value = true
   await authClient.signOut()
   selectProject(null)
+  createOpen.value = false
   clearNuxtData('console-context')
   await navigateTo('/sign-in')
 }
@@ -108,6 +110,8 @@ async function signOut() {
         <slot />
       </main>
     </div>
+
+    <CreateProjectModal />
 
     <USlideover
       v-model:open="open"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const { data: context, selected, selectProject } = await useConsoleProject()
-const canCreate = computed(() => !context.value?.projects.length || context.value.projects.some(item => ['owner', 'admin'].includes(item.role)))
+const createOpen = useState('project-creation-open', () => false)
+const canCreate = computed(() => Boolean(context.value && (selected.value ? ['owner', 'admin'].includes(selected.value.role) : !context.value.organizations.length || context.value.organizations.some(item => ['owner', 'admin'].includes(item.role)))))
 const items = computed(() => [
   (context.value?.projects || []).map(item => ({
     label: item.project.name,
@@ -12,7 +13,7 @@ const items = computed(() => [
       await navigateTo('/app')
     }
   })),
-  ...(canCreate.value ? [[{ label: 'Create project', icon: 'i-lucide-plus', to: context.value?.projects.length ? '/app/projects/new' : '/app/setup' }]] : [])
+  ...(canCreate.value ? [[{ label: 'Create project', icon: 'i-lucide-plus', onSelect: () => { createOpen.value = true } }]] : [])
 ])
 </script>
 
