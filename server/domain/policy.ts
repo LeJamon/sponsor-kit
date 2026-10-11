@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isValidClassicAddress } from 'ripple-address-codec'
 
 export const policyDocumentSchema = z.object({
   allowedTransactionTypes: z.array(z.string()).min(1),
@@ -8,12 +9,22 @@ export const policyDocumentSchema = z.object({
   maximumReserveDrops: z.string().regex(/^\d+$/).default('0'),
   maximumIntentsPerWalletPerDay: z.number().int().positive(),
   intentTtlSeconds: z.number().int().min(30).max(900),
-  requireWalletProof: z.boolean().default(true)
+  requireWalletProof: z.literal(true).default(true)
 })
 
 export type PolicyDocument = z.infer<typeof policyDocumentSchema>
 
 export type PolicyDecision = { allowed: true } | { allowed: false, code: string, reason: string }
+
+/** Validate values that are accepted by the console policy authoring API. */
+export function validatePolicyDocument(document: PolicyDocument): PolicyDocument {
+  for (const destination of document.allowedDestinations) {
+    if (!isValidClassicAddress(destination)) {
+      throw new Error(`Allowed destination is not a valid classic XRPL address: ${destination}`)
+    }
+  }
+  return document
+}
 
 const forbiddenClientFields = new Set(['SponsorSignature', 'TxnSignature', 'Signers', 'SigningPubKey'])
 
