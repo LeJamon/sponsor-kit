@@ -54,7 +54,7 @@ function requestMessage(error: unknown, fallback: string) {
 }
 
 async function createKey() {
-  if (!projectId.value || !canManageKeys.value) return
+  if (!projectId.value || !canManageKeys.value || saving.value) return
   saving.value = true
   mutationError.value = ''
   try {
@@ -165,6 +165,7 @@ async function copyEnvironmentTemplate() {
             class="w-full"
             placeholder="Backend service"
             autocomplete="off"
+            :disabled="saving"
           />
         </UFormField><UFormField label="Scopes">
           <UCheckboxGroup
@@ -172,6 +173,7 @@ async function copyEnvironmentTemplate() {
             :items="scopeItems"
             orientation="horizontal"
             :ui="{ fieldset: 'flex-wrap gap-x-4 gap-y-2' }"
+            :disabled="saving"
           />
         </UFormField><UAlert
           v-if="mutationError"
@@ -184,7 +186,7 @@ async function copyEnvironmentTemplate() {
             type="submit"
             label="Create key"
             :loading="saving"
-            :disabled="name.trim().length < 2 || !scopes.length"
+            :disabled="saving || name.trim().length < 2 || !scopes.length"
           />
         </div>
       </form>
@@ -251,13 +253,6 @@ ACME_API_KEY=paste-the-secret-shown-once</pre>
       v-else
       class="acme-card overflow-hidden"
     >
-      <div class="border-b border-[#D9E5F7] px-5 py-4">
-        <h2 class="font-semibold">
-          Project keys
-        </h2><p class="mt-1 text-xs text-[#62789C]">
-          Names, scopes, and usage for this project
-        </p>
-      </div>
       <div class="hidden border-b border-[#E9F0FA] px-5 py-2 text-xs font-medium text-[#62789C] md:grid md:grid-cols-[1fr_1fr_1.5fr_1fr_auto] md:gap-3">
         <span>Name</span><span>Status</span><span>Scopes</span><span>Activity</span><span class="sr-only">Actions</span>
       </div>
@@ -297,8 +292,6 @@ ACME_API_KEY=paste-the-secret-shown-once</pre>
       >
         <p class="font-medium">
           No API keys
-        </p><p class="mt-1 text-sm text-[#62789C]">
-          Create a server credential when this project needs API access.
         </p>
       </div>
     </section>

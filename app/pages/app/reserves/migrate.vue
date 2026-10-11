@@ -25,6 +25,14 @@ const selectedReserve = computed(() => eligible.value.filter(target => selected.
 const activeState = computed(() => plan.value?.targets.find(target => target.intent?.id === activeIntent.value?.id)?.intent?.state)
 const activeTerminal = computed(() => ['validated', 'failed', 'expired'].includes(activeState.value || ''))
 
+function setTargetSelected(targetId: string, value: boolean | 'indeterminate') {
+  if (value === true) {
+    if (!selected.value.includes(targetId)) selected.value = [...selected.value, targetId]
+    return
+  }
+  selected.value = selected.value.filter(id => id !== targetId)
+}
+
 function message(error: unknown, fallback: string) {
   return error && typeof error === 'object' && 'data' in error && typeof error.data === 'object' && error.data && 'statusMessage' in error.data
     ? String(error.data.statusMessage)
@@ -328,10 +336,10 @@ onUnmounted(() => {
             class="flex flex-wrap items-start gap-3 px-5 py-4"
             :class="target.classification === 'eligible' && !target.intent ? 'cursor-pointer hover:bg-[#F7FAFF]' : 'opacity-70'"
           ><UCheckbox
-            v-model="selected"
-            :value="target.id"
+            :model-value="selected.includes(target.id)"
             :disabled="target.classification !== 'eligible' || Boolean(target.intent)"
             class="shrink-0"
+            @update:model-value="setTargetSelected(target.id, $event)"
           /><div class="min-w-0 flex-1">
             <p class="font-medium">{{ target.objectType }}</p><p class="truncate font-mono text-xs text-[#62789C]">{{ target.objectId || 'Account reserve' }}</p><p
               v-if="target.reason"
@@ -434,8 +442,8 @@ onUnmounted(() => {
           class="mt-5"
           color="success"
           variant="subtle"
-          title="Signed blob persisted for submission"
-          :description="`Transaction ${authorizeResult.transactionHash}. Completion follows validated-ledger reconciliation.`"
+          title="Transaction submitted"
+          :description="`Transaction ${authorizeResult.transactionHash}. Awaiting validation.`"
         /><div
           v-if="activeTerminal"
           class="mt-5 flex justify-end"

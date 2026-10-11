@@ -2,6 +2,7 @@
 import { formatDateTime, formatDropsAsXrp } from '~/utils/format'
 
 const requestFetch = useRequestFetch()
+const toast = useToast()
 
 definePageMeta({ layout: 'dashboard' })
 type FundingData = {
@@ -32,11 +33,19 @@ async function copyAddress() {
   if (!data.value?.sponsor.address) {
     return
   }
-  await navigator.clipboard.writeText(data.value.sponsor.address)
-  copied.value = true
-  setTimeout(() => {
-    copied.value = false
-  }, 1500)
+  try {
+    await navigator.clipboard.writeText(data.value.sponsor.address)
+    copied.value = true
+    setTimeout(() => {
+      copied.value = false
+    }, 1500)
+  } catch {
+    toast.add({
+      title: 'Address copy failed',
+      description: 'Select the treasury address and copy it manually.',
+      color: 'error'
+    })
+  }
 }
 
 async function saveBudget() {
@@ -131,7 +140,7 @@ async function saveBudget() {
               Project budget
             </h2>
             <p class="mt-1 max-w-2xl text-sm text-[#62789C]">
-              These caps apply to the selected project. The balance above belongs to the shared sponsor treasury. Amounts are edited in drops.
+              These caps apply to the selected project. The treasury balance above is shared across projects. Amounts are edited in drops.
             </p>
           </div>
           <UButton
@@ -291,9 +300,7 @@ async function saveBudget() {
       <section class="acme-card mt-6 p-5">
         <h2 class="font-semibold">
           Shared sponsor treasury
-        </h2><p class="mt-1 text-sm text-[#62789C]">
-          This treasury is shared across projects; the selected project is limited by the budget above.
-        </p><div class="mt-4 flex flex-wrap items-center gap-3">
+        </h2><div class="mt-4 flex flex-wrap items-center gap-3">
           <code class="break-all text-sm">{{ data.sponsor.address }}</code><UButton
             :label="copied ? 'Copied' : 'Copy'"
             icon="i-lucide-copy"
@@ -309,9 +316,7 @@ async function saveBudget() {
         <div class="border-b border-[#D9E5F7] px-5 py-4">
           <h2 class="font-semibold">
             Project funding ledger
-          </h2><p class="text-xs text-[#62789C]">
-            Selected project activity from the shared treasury
-          </p>
+          </h2>
         </div><div
           v-if="data.entries.length"
           class="divide-y divide-[#E9F0FA]"
