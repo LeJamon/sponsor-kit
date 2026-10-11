@@ -116,21 +116,21 @@ const periodLabel = computed(() => {
         <MetricCard
           label="Validated transactions"
           :value="String(data.totals.validated)"
-          detail="Validated outcomes in period"
+          detail="Selected period"
           icon="i-lucide-circle-check"
           tone="success"
         />
         <MetricCard
           label="Pending transactions"
           :value="String(data.totals.pending)"
-          detail="Current pending snapshot"
+          detail="Current"
           icon="i-lucide-clock-3"
           :tone="data.totals.pending ? 'warning' : 'success'"
         />
         <MetricCard
           label="Unsuccessful transactions"
           :value="String(data.totals.failed)"
-          detail="Failed or otherwise unsuccessful outcomes"
+          detail="Selected period"
           icon="i-lucide-circle-x"
           :tone="data.totals.failed ? 'warning' : 'success'"
         />
@@ -144,7 +144,7 @@ const periodLabel = computed(() => {
         <MetricCard
           label="Fees spent"
           :value="formatDropsAsXrp(data.totals.feeSpentDrops)"
-          detail="Captured fees in period"
+          detail="Selected period"
           icon="i-lucide-receipt"
         />
         <MetricCard

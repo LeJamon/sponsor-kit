@@ -166,7 +166,7 @@ export async function readProjectUsage(input: {
         count(*) filter (where i."state" in ('failed', 'rejected', 'expired', 'cancelled', 'superseded'))::text as failed
       from "sponsorship_intents" i
       where i."project_id" = ${input.projectId}
-        and i."updated_at" > ${period.from.toISOString()}
+        and i."updated_at" >= ${period.from.toISOString()}
         and i."updated_at" < ${period.to.toISOString()}
         ${policyCondition}
       group by 1
@@ -182,15 +182,18 @@ export async function readProjectUsage(input: {
         inner join "sponsorship_intents" i on i."id" = f."intent_id"
         where i."project_id" = ${input.projectId}
           and f."type" = 'capture'
-          and f."created_at" > ${period.from.toISOString()}
-          and f."created_at" < ${period.to.toISOString()}
           ${policyCondition}
         order by f."intent_id", f."created_at", f."id"
+      ), period_captures as (
+        select *
+        from captures
+        where "created_at" >= ${period.from.toISOString()}
+          and "created_at" < ${period.to.toISOString()}
       )
       select
         date_trunc(${unit}, c."created_at" at time zone 'UTC') at time zone 'UTC' as bucket,
         coalesce(sum(c."fee_drops"), 0)::text as "feeSpentDrops"
-      from captures c
+      from period_captures c
       group by 1
       order by 1
     `),

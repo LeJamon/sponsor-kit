@@ -14,7 +14,7 @@ const props = withDefaults(defineProps<{
 
 const chartWidth = 760
 const chartHeight = 300
-const margin = { top: 28, right: 30, bottom: 48, left: 68 }
+const margin = { top: 28, right: 30, bottom: 48, left: 100 }
 const plotWidth = chartWidth - margin.left - margin.right
 const plotHeight = chartHeight - margin.top - margin.bottom
 

@@ -125,7 +125,9 @@ describe.skipIf(!runDatabaseTests)('project usage accounting', () => {
     const failedA = randomUUID()
     const pendingA = randomUUID()
     const oldA = randomUUID()
+    const duplicateA = randomUUID()
     const exactFromA = randomUUID()
+    const exactToA = randomUUID()
     const validB = randomUUID()
     await database.insert(sponsorshipIntents).values([
       // The request was old, but its terminal outcome is inside the window.
@@ -135,8 +137,12 @@ describe.skipIf(!runDatabaseTests)('project usage accounting', () => {
       makeIntent({ id: pendingA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'submitting', createdAt: new Date('2026-01-09T09:30:00.000Z'), updatedAt: new Date('2026-01-09T09:30:00.000Z') }),
       // This old terminal outcome is outside the period; its delayed capture is not.
       makeIntent({ id: oldA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-09T12:00:00.000Z'), updatedAt: new Date('2026-01-09T12:00:00.000Z') }),
-      // The exact lower bound must exclude this outcome and capture.
+      // A duplicate's first capture is outside the period, so its later retry is ignored.
+      makeIntent({ id: duplicateA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-09T12:00:00.000Z'), updatedAt: new Date('2026-01-09T12:00:00.000Z') }),
+      // The exact lower bound is included by the half-open interval.
       makeIntent({ id: exactFromA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T12:00:00.000Z'), updatedAt: from }),
+      // The exact upper bound is excluded.
+      makeIntent({ id: exactToA, projectId: ids.projectA, sponsorAccountId: ids.accountA, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T12:00:00.000Z'), updatedAt: now }),
       makeIntent({ id: validB, projectId: ids.projectB, sponsorAccountId: ids.accountB, policyId: ids.policyA, state: 'validated', createdAt: new Date('2026-01-11T11:00:00.000Z'), updatedAt: new Date('2026-01-11T11:30:00.000Z') })
     ])
     await database.insert(fundingLedgerEntries).values([
@@ -144,18 +150,21 @@ describe.skipIf(!runDatabaseTests)('project usage accounting', () => {
       { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: validA, type: 'capture', feeDrops: 99n, idempotencyKey: `capture-${validA}-duplicate`, createdAt: new Date('2026-01-11T11:32:00.000Z') },
       { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: failedA, type: 'capture', feeDrops: 3n, idempotencyKey: `capture-${failedA}`, createdAt: new Date('2026-01-11T10:31:00.000Z') },
       { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: oldA, type: 'capture', feeDrops: 101n, idempotencyKey: `capture-${oldA}`, createdAt: new Date('2026-01-11T12:00:00.000Z') },
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: duplicateA, type: 'capture', feeDrops: 13n, idempotencyKey: `capture-${duplicateA}-first`, createdAt: new Date(from.getTime() - 1) },
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: duplicateA, type: 'capture', feeDrops: 17n, idempotencyKey: `capture-${duplicateA}-retry`, createdAt: new Date('2026-01-11T11:00:00.000Z') },
       { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: exactFromA, type: 'capture', feeDrops: 77n, idempotencyKey: `capture-${exactFromA}`, createdAt: from },
+      { sponsorAccountId: ids.accountA, treasuryId: ids.treasury, intentId: exactToA, type: 'capture', feeDrops: 88n, idempotencyKey: `capture-${exactToA}`, createdAt: now },
       { sponsorAccountId: ids.accountB, treasuryId: ids.treasury, intentId: validB, type: 'capture', feeDrops: 55n, idempotencyKey: `capture-${validB}`, createdAt: new Date('2026-01-11T11:31:00.000Z') }
     ])
 
     const usageA = await readProjectUsage({ projectId: ids.projectA, range: '24h', now })
     expect(usageA.period).toEqual({ range: '24h', from: from.toISOString(), to: now.toISOString() })
-    expect(usageA.totals).toEqual({ validated: 1, pending: 1, failed: 1, successRate: 50, feeSpentDrops: '111' })
+    expect(usageA.totals).toEqual({ validated: 2, pending: 1, failed: 1, successRate: 66.66, feeSpentDrops: '188' })
     expect(usageA.reserves).toEqual({ lockedDrops: '20', pendingDrops: '11' })
     expect(usageA.series).toHaveLength(25)
-    expect(usageA.series.reduce((total, point) => total + point.validated, 0)).toBe(1)
+    expect(usageA.series.reduce((total, point) => total + point.validated, 0)).toBe(2)
     expect(usageA.series.reduce((total, point) => total + point.failed, 0)).toBe(1)
-    expect(usageA.series.reduce((total, point) => total + BigInt(point.feeSpentDrops), 0n)).toBe(111n)
+    expect(usageA.series.reduce((total, point) => total + BigInt(point.feeSpentDrops), 0n)).toBe(188n)
 
     const usageB = await readProjectUsage({ projectId: ids.projectB, range: '24h', now })
     expect(usageB.totals).toMatchObject({ validated: 1, pending: 0, failed: 0, feeSpentDrops: '55' })
