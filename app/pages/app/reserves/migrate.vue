@@ -178,17 +178,7 @@ onUnmounted(() => {
 <template>
   <div>
     <ConsolePageHeader
-      eyebrow="Existing wallets"
       title="Reserve migration"
-      description="Create durable, ledger-pinned plans and move one account or object reserve at a time with real SponsorshipTransfer transactions."
-    />
-    <UAlert
-      class="mb-6"
-      color="primary"
-      variant="subtle"
-      icon="i-lucide-shield-check"
-      title="Wallet ownership is proven by the transaction signature"
-      description="ACME never requests a seed. Your wallet signs each exact transfer first; the sponsor verifies and co-signs it without changing signed fields."
     />
     <UAlert
       v-if="errorMessage"
@@ -205,11 +195,9 @@ onUnmounted(() => {
     >
       <h2 class="text-xl font-semibold">
         Inspect a Devnet wallet
-      </h2><p class="mt-2 text-sm leading-6 text-[#62789C]">
-        Account and owner objects are read from one validated ledger and persisted so changes can be detected before signing.
-      </p><UFormField
+      </h2><UFormField
         label="XRPL address"
-        help="Devnet · read-only until the wallet signs a transfer"
+        help="Read-only inspection. Signing starts after review."
         class="mt-6"
       >
         <UInput
@@ -240,7 +228,7 @@ onUnmounted(() => {
             Saved migration plans
           </h2>
           <p class="mt-1 text-xs text-[#62789C]">
-            Plans are pinned to a validated ledger and can be reopened after navigation or a reload.
+            Reopen a plan pinned to a validated ledger.
           </p>
         </div>
         <UButton
@@ -308,8 +296,8 @@ onUnmounted(() => {
     <template v-else>
       <section class="acme-card mb-5 p-5 sm:flex sm:items-center sm:justify-between">
         <div>
-          <p class="text-xs font-medium text-[#62789C]">
-            PINNED DEVNET WALLET
+          <p class="text-xs text-[#62789C]">
+            Wallet under review
           </p><p class="mt-1 break-all font-mono text-sm font-semibold">
             {{ plan.accountAddress }}
           </p>
@@ -337,12 +325,13 @@ onUnmounted(() => {
           <label
             v-for="target in plan.targets"
             :key="target.id"
-            class="flex items-center gap-4 px-5 py-4"
+            class="flex flex-wrap items-start gap-3 px-5 py-4"
             :class="target.classification === 'eligible' && !target.intent ? 'cursor-pointer hover:bg-[#F7FAFF]' : 'opacity-70'"
           ><UCheckbox
             v-model="selected"
             :value="target.id"
             :disabled="target.classification !== 'eligible' || Boolean(target.intent)"
+            class="shrink-0"
           /><div class="min-w-0 flex-1">
             <p class="font-medium">{{ target.objectType }}</p><p class="truncate font-mono text-xs text-[#62789C]">{{ target.objectId || 'Account reserve' }}</p><p
               v-if="target.reason"
@@ -386,7 +375,7 @@ onUnmounted(() => {
         <h2 class="font-semibold">
           Sequential transfer queue
         </h2><p class="mt-2 text-sm text-[#62789C]">
-          Each transfer must validate before the next sequence is prepared.
+          Prepare one transfer at a time; validate before continuing.
         </p><div class="mt-4 flex flex-wrap gap-2">
           <UButton
             v-for="target in eligible.filter(item => selected.includes(item.id) && !item.intent)"
@@ -409,9 +398,7 @@ onUnmounted(() => {
       >
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p class="acme-kicker">
-              Wallet authorization
-            </p><h2 class="mt-1 font-semibold">
+            <h2 class="font-semibold">
               Sign exact SponsorshipTransfer
             </h2>
           </div><UButton
@@ -424,7 +411,7 @@ onUnmounted(() => {
         </div><pre class="mt-4 max-h-72 overflow-auto rounded-xl bg-[#071733] p-4 text-xs text-[#DCEBFF]">{{ JSON.stringify(activeIntent.transaction, null, 2) }}</pre><UFormField
           class="mt-5"
           label="Wallet-signed transaction blob"
-          help="This is the wallet-agnostic boundary xrpl-connect will call. The backend decodes and verifies the blob before using the sponsor key."
+          help="Paste the exact blob returned by your wallet. Never share a seed or private key."
         >
           <UTextarea
             v-model="signedBlob"
@@ -448,7 +435,7 @@ onUnmounted(() => {
           color="success"
           variant="subtle"
           title="Signed blob persisted for submission"
-          :description="`Transaction ${authorizeResult.transactionHash}. ACME will only mark it complete after validated-ledger reconciliation.`"
+          :description="`Transaction ${authorizeResult.transactionHash}. Completion follows validated-ledger reconciliation.`"
         /><div
           v-if="activeTerminal"
           class="mt-5 flex justify-end"

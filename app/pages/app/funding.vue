@@ -5,7 +5,7 @@ const requestFetch = useRequestFetch()
 
 definePageMeta({ layout: 'dashboard' })
 type FundingData = {
-  sponsor: { address: string, signerKeyReference: string, observedBalanceDrops: string, ledgerIndex: number, reconciledAt: string }
+  sponsor: { address: string, observedBalanceDrops: string, ledgerIndex: number, reconciledAt: string }
   balance: { availableDrops: string, pendingFeeDrops: string, pendingReserveDrops: string, lockedReserveDrops: string }
   limits?: { feeBudgetDrops: string, reserveBudgetDrops: string, walletFeeQuotaDrops: string, walletReserveQuotaDrops: string, quotaPeriodSeconds: number }
   usage?: { feeReservedDrops: string, feeSpentDrops: string, reserveReservedDrops: string, reserveExposureDrops: string }
@@ -67,9 +67,7 @@ async function saveBudget() {
 <template>
   <div>
     <ConsolePageHeader
-      eyebrow="Capital"
       title="Sponsor funding"
-      description="Validated Devnet balance, required reserve, pending exposure, and append-only funding entries."
     >
       <UButton
         label="Refresh ledger"
@@ -100,24 +98,24 @@ async function saveBudget() {
     <template v-else-if="data">
       <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="Ledger balance"
+          label="Shared treasury balance"
           :value="formatDropsAsXrp(data.sponsor.observedBalanceDrops)"
-          :detail="`Ledger ${data.sponsor.ledgerIndex.toLocaleString()}`"
+          :detail="`Validated ledger ${data.sponsor.ledgerIndex.toLocaleString()}`"
           icon="i-lucide-landmark"
         /><MetricCard
-          label="Available capacity"
+          label="Shared available capacity"
           :value="formatDropsAsXrp(data.balance.availableDrops)"
           detail="After reserves and pending exposure"
           icon="i-lucide-gauge"
           tone="success"
         /><MetricCard
-          label="Pending fees"
+          label="Pending treasury fees"
           :value="formatDropsAsXrp(data.balance.pendingFeeDrops)"
           detail="Authorized, not reconciled"
           icon="i-lucide-receipt"
           :tone="data.balance.pendingFeeDrops !== '0' ? 'warning' : 'success'"
         /><MetricCard
-          label="Locked reserve"
+          label="Locked treasury reserve"
           :value="formatDropsAsXrp(data.balance.lockedReserveDrops)"
           :detail="`${formatDropsAsXrp(data.balance.pendingReserveDrops)} pending`"
           icon="i-lucide-anchor"
@@ -129,56 +127,52 @@ async function saveBudget() {
       >
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p class="acme-kicker">
-              Sponsorship guardrails
-            </p>
-            <h2 class="mt-1 font-semibold">
-              Project funding limits
+            <h2 class="font-semibold">
+              Project budget
             </h2>
             <p class="mt-1 max-w-2xl text-sm text-[#62789C]">
-              Limits are measured in drops. They keep Devnet sponsorship predictable while the usage figures below show the current reserved and spent amounts.
+              These caps apply to the selected project. The balance above belongs to the shared sponsor treasury. Amounts are edited in drops.
             </p>
           </div>
           <UButton
             v-if="canManageBudget"
-            :label="budgetOpen ? 'Close editor' : 'Edit limits'"
+            :label="budgetOpen ? 'Close editor' : 'Edit budget'"
             :icon="budgetOpen ? 'i-lucide-x' : 'i-lucide-sliders-horizontal'"
             color="neutral"
             variant="outline"
+            :aria-expanded="budgetOpen"
             @click="budgetOpen = !budgetOpen"
           />
         </div>
-        <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <div class="rounded-xl bg-[#F4F8FE] p-4">
-            <p class="text-xs text-[#62789C]">
-              Fee budget
-            </p><p class="mt-1 font-semibold">
-              {{ formatDropsAsXrp(data.limits.feeBudgetDrops) }}
-            </p>
+        <div class="mt-5 grid gap-x-8 sm:grid-cols-2">
+          <div class="flex items-center justify-between gap-4 border-b border-[#E9F0FA] py-3">
+            <span class="min-w-0">
+              <span class="block text-sm font-medium">Fee budget</span>
+              <span class="block text-xs text-[#62789C]">Project-wide cap</span>
+            </span><span class="shrink-0 font-medium">{{ formatDropsAsXrp(data.limits.feeBudgetDrops) }}</span>
           </div>
-          <div class="rounded-xl bg-[#F4F8FE] p-4">
-            <p class="text-xs text-[#62789C]">
-              Reserve budget
-            </p><p class="mt-1 font-semibold">
-              {{ formatDropsAsXrp(data.limits.reserveBudgetDrops) }}
-            </p>
+          <div class="flex items-center justify-between gap-4 border-b border-[#E9F0FA] py-3">
+            <span class="min-w-0">
+              <span class="block text-sm font-medium">Reserve budget</span>
+              <span class="block text-xs text-[#62789C]">Project-wide cap</span>
+            </span><span class="shrink-0 font-medium">{{ formatDropsAsXrp(data.limits.reserveBudgetDrops) }}</span>
           </div>
-          <div class="rounded-xl bg-[#F4F8FE] p-4">
-            <p class="text-xs text-[#62789C]">
-              Wallet fee quota
-            </p><p class="mt-1 font-semibold">
-              {{ formatDropsAsXrp(data.limits.walletFeeQuotaDrops) }}
-            </p>
+          <div class="flex items-center justify-between gap-4 border-b border-[#E9F0FA] py-3">
+            <span class="min-w-0">
+              <span class="block text-sm font-medium">Wallet fee quota</span>
+              <span class="block text-xs text-[#62789C]">Per wallet in each period</span>
+            </span><span class="shrink-0 font-medium">{{ formatDropsAsXrp(data.limits.walletFeeQuotaDrops) }}</span>
           </div>
-          <div class="rounded-xl bg-[#F4F8FE] p-4">
-            <p class="text-xs text-[#62789C]">
-              Wallet reserve quota
-            </p><p class="mt-1 font-semibold">
-              {{ formatDropsAsXrp(data.limits.walletReserveQuotaDrops) }}
-            </p>
+          <div class="flex items-center justify-between gap-4 border-b border-[#E9F0FA] py-3">
+            <span class="min-w-0">
+              <span class="block text-sm font-medium">Wallet reserve quota</span>
+              <span class="block text-xs text-[#62789C]">Per wallet in each period</span>
+            </span><span class="shrink-0 font-medium">{{ formatDropsAsXrp(data.limits.walletReserveQuotaDrops) }}</span>
           </div>
         </div>
-        <dl class="mt-5 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
+        <h3 class="mt-6 text-sm font-semibold">
+          Current usage
+        </h3><dl class="mt-2 grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
           <div class="flex justify-between gap-4 border-b border-[#E9F0FA] pb-2">
             <dt class="text-[#62789C]">
               Fee reserved
@@ -217,39 +211,50 @@ async function saveBudget() {
         </dl>
         <form
           v-if="budgetOpen && canManageBudget"
-          class="mt-6 border-t border-[#D9E5F7] pt-5"
+          class="mt-5 border-t border-[#D9E5F7] pt-2"
           @submit.prevent="saveBudget"
         >
-          <div class="grid gap-4 sm:grid-cols-2">
-            <UFormField label="Fee budget (drops)">
+          <div class="grid gap-x-8 sm:grid-cols-2">
+            <UFormField
+              label="Fee budget · drops"
+              class="border-b border-[#E9F0FA] py-3"
+            >
               <UInput
                 v-model="budgetForm.feeBudgetDrops"
                 inputmode="numeric"
                 class="w-full"
               />
-            </UFormField>
-            <UFormField label="Reserve budget (drops)">
+            </UFormField><UFormField
+              label="Reserve budget · drops"
+              class="border-b border-[#E9F0FA] py-3"
+            >
               <UInput
                 v-model="budgetForm.reserveBudgetDrops"
                 inputmode="numeric"
                 class="w-full"
               />
-            </UFormField>
-            <UFormField label="Wallet fee quota (drops)">
+            </UFormField><UFormField
+              label="Wallet fee quota · drops"
+              class="border-b border-[#E9F0FA] py-3"
+            >
               <UInput
                 v-model="budgetForm.walletFeeQuotaDrops"
                 inputmode="numeric"
                 class="w-full"
               />
-            </UFormField>
-            <UFormField label="Wallet reserve quota (drops)">
+            </UFormField><UFormField
+              label="Wallet reserve quota · drops"
+              class="border-b border-[#E9F0FA] py-3"
+            >
               <UInput
                 v-model="budgetForm.walletReserveQuotaDrops"
                 inputmode="numeric"
                 class="w-full"
               />
-            </UFormField>
-            <UFormField label="Quota period (seconds)">
+            </UFormField><UFormField
+              label="Quota period · seconds"
+              class="border-b border-[#E9F0FA] py-3"
+            >
               <UInput
                 v-model.number="budgetForm.quotaPeriodSeconds"
                 type="number"
@@ -263,13 +268,13 @@ async function saveBudget() {
             class="mt-4"
             color="error"
             variant="subtle"
-            title="Could not update funding limits"
+            title="Could not save project budget"
             :description="budgetError"
           />
           <div class="mt-4 flex flex-wrap gap-2">
             <UButton
               type="submit"
-              label="Save limits"
+              label="Save budget"
               icon="i-lucide-save"
               :loading="budgetSaving"
             />
@@ -284,9 +289,11 @@ async function saveBudget() {
         </form>
       </section>
       <section class="acme-card mt-6 p-5">
-        <p class="text-xs font-medium text-[#62789C]">
-          DEVNET SPONSOR ACCOUNT
-        </p><div class="mt-2 flex flex-wrap items-center gap-3">
+        <h2 class="font-semibold">
+          Shared sponsor treasury
+        </h2><p class="mt-1 text-sm text-[#62789C]">
+          This treasury is shared across projects; the selected project is limited by the budget above.
+        </p><div class="mt-4 flex flex-wrap items-center gap-3">
           <code class="break-all text-sm">{{ data.sponsor.address }}</code><UButton
             :label="copied ? 'Copied' : 'Copy'"
             icon="i-lucide-copy"
@@ -295,15 +302,15 @@ async function saveBudget() {
             @click="copyAddress"
           />
         </div><p class="mt-3 text-xs text-[#62789C]">
-          Local signer · {{ data.sponsor.signerKeyReference }} · reconciled {{ formatDateTime(data.sponsor.reconciledAt) }}
+          Reconciled {{ formatDateTime(data.sponsor.reconciledAt) }}
         </p>
       </section>
       <section class="acme-card mt-6 overflow-hidden">
         <div class="border-b border-[#D9E5F7] px-5 py-4">
           <h2 class="font-semibold">
-            Capital ledger
+            Project funding ledger
           </h2><p class="text-xs text-[#62789C]">
-            Reservations, captures, releases, and reconciliations
+            Selected project activity from the shared treasury
           </p>
         </div><div
           v-if="data.entries.length"
