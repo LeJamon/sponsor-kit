@@ -24,8 +24,10 @@ const transactionTypeOptions = computed(() => {
   const configured = (policies.value || []).flatMap(policy => Array.isArray(policy.document.allowedTransactionTypes)
     ? policy.document.allowedTransactionTypes.filter((item): item is string => typeof item === 'string')
     : [])
-  const protocolTypes = Object.keys(protocol.value?.definitions?.TRANSACTION_TYPES || {})
-    .filter(type => !['EnableAmendment', 'SetFee', 'UNLModify'].includes(type))
+  const transactionDefinitions = protocol.value?.definitions?.TRANSACTION_TYPES || {}
+  const protocolTypes = Object.entries(transactionDefinitions)
+    .filter(([type, code]) => typeof code === 'number' && code >= 0 && !['EnableAmendment', 'SetFee', 'UNLModify'].includes(type))
+    .map(([type]) => type)
   const values = [...new Set([...protocolTypes, ...configured])]
   return values.length ? values : ['Payment']
 })

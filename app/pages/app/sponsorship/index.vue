@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDateTime } from '~/utils/format'
-import { dropsToXrp, policyDocumentFromForm, policyFormFromDocument, type PolicyDocument } from '~/utils/policy'
+import { dropsToXrp, policyDocumentForDisplay, type PolicyDocument } from '~/utils/policy'
 
 type PolicyRow = {
   id: string
@@ -39,8 +39,7 @@ const archiveOpen = computed({
 })
 
 function policyDocument(policy: PolicyRow): PolicyDocument {
-  const form = policyFormFromDocument(policy.document)
-  return policyDocumentFromForm(form)
+  return policyDocumentForDisplay(policy.document)
 }
 
 function statusColor(status: PolicyRow['status']) {

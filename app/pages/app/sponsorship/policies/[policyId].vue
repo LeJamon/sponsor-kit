@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { formatDateTime } from '~/utils/format'
-import { dropsToXrp, policyDocumentFromForm, policyFormFromDocument, type PolicyDocument, type PolicyForm } from '~/utils/policy'
+import { dropsToXrp, policyDocumentForDisplay, policyDocumentFromForm, policyFormFromDocument, type PolicyDocument, type PolicyForm } from '~/utils/policy'
 
 type PolicyRow = {
   id: string
@@ -42,8 +42,10 @@ const transactionTypeOptions = computed(() => {
     const types = item.document.allowedTransactionTypes
     return Array.isArray(types) ? types.filter((type): type is string => typeof type === 'string') : []
   })
-  const protocolTypes = Object.keys(protocol.value?.definitions?.TRANSACTION_TYPES || {})
-    .filter(type => !['EnableAmendment', 'SetFee', 'UNLModify'].includes(type))
+  const transactionDefinitions = protocol.value?.definitions?.TRANSACTION_TYPES || {}
+  const protocolTypes = Object.entries(transactionDefinitions)
+    .filter(([type, code]) => typeof code === 'number' && code >= 0 && !['EnableAmendment', 'SetFee', 'UNLModify'].includes(type))
+    .map(([type]) => type)
   return [...new Set([...protocolTypes, ...configured])]
 })
 
@@ -68,7 +70,7 @@ function emptyForm() {
 }
 
 function currentDocument(row: PolicyRow): PolicyDocument {
-  return policyDocumentFromForm(policyFormFromDocument(row.document))
+  return policyDocumentForDisplay(row.document)
 }
 
 watch(policy, (value) => {

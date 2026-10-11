@@ -72,6 +72,27 @@ export function policyFormFromDocument(document: Record<string, unknown>): Polic
   }
 }
 
+/** Normalize a stored snapshot for display without revalidating legacy values. */
+export function policyDocumentForDisplay(document: Record<string, unknown>): PolicyDocument {
+  const form = policyFormFromDocument(document)
+  const maximumFeeDrops = typeof document.maximumFeeDrops === 'string' && /^\d+$/.test(document.maximumFeeDrops)
+    ? document.maximumFeeDrops
+    : xrpToDrops(form.maximumFeeXrp)
+  const maximumReserveDrops = typeof document.maximumReserveDrops === 'string' && /^\d+$/.test(document.maximumReserveDrops)
+    ? document.maximumReserveDrops
+    : xrpToDrops(form.maximumReserveXrp)
+  return {
+    allowedTransactionTypes: form.transactionTypes,
+    allowedDestinations: lines(form.allowedDestinations),
+    allowedFields: lines(form.allowedFields),
+    maximumFeeDrops,
+    maximumReserveDrops,
+    maximumIntentsPerWalletPerDay: Number(form.maximumIntentsPerWalletPerDay),
+    intentTtlSeconds: Number(form.intentTtlSeconds),
+    requireWalletProof: true
+  }
+}
+
 export function emptyPolicyForm(transactionTypes: string[] = []): PolicyForm {
   return {
     maximumFeeXrp: '0.01',
