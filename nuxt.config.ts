@@ -11,6 +11,10 @@ export default defineNuxtConfig({
 
   css: ['~/assets/css/main.css'],
 
+  ui: {
+    colorMode: false
+  },
+
   runtimeConfig: {
     // Private settings are read directly by server code at runtime. Keeping
     // them out of the build-time config prevents deployment secrets from

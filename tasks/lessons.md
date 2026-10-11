@@ -1,5 +1,7 @@
 # Lessons
 
+- For a light-only design, disable automatic framework color-mode switching and set native controls to light. Verify with both a dark OS preference and a saved dark theme so framework tokens cannot conflict with custom light surfaces.
+
 - Treat draft amendment documents as design input, not proof of network availability. Discover live capabilities and fail closed before signing.
 - Keep fee spend, pending reserve exposure, and validated locked reserve capital separate in protocol, database, API, and UI models.
 - Existing account sponsorship never implies retroactive sponsorship of owned ledger objects; inventory and migrate eligible objects explicitly.

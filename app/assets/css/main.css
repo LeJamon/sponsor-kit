@@ -27,6 +27,7 @@
 }
 
 html {
+  color-scheme: only light;
   background: var(--acme-surface);
   color: var(--acme-ink);
   scroll-behavior: smooth;

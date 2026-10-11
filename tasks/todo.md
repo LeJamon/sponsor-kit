@@ -1,5 +1,20 @@
 # ACME Sponsor Kit
 
+## Light-only theme — 2026-10-11
+
+- [x] Trace the mixed theme to automatic Nuxt UI color-mode switching.
+- [x] Disable theme switching and enforce light page tokens and native controls.
+- [x] Verify lint, typecheck, build, and browser rendering with dark system/saved preferences.
+
+### Review
+
+Disabled Nuxt UI color-mode registration, set the root light class, and forced
+native controls to use only the light color scheme. Lint, typecheck, and the
+production build passed. Chromium checks passed on sign-in, sign-up, password
+reset, and documentation under both light and dark system preferences with
+a saved dark preference. Desktop and mobile sign-in screenshots confirmed
+readable text, white inputs, and consistent button colors.
+
 ## Devnet MVP completion — 2026-10-10
 
 Scope: a self-service Devnet pilot with one clearly selected project per user,
