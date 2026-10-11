@@ -1,5 +1,36 @@
 # ACME Sponsor Kit
 
+## Split login and external authentication — 2026-10-11
+
+- [x] Build a responsive light-only login with the existing boat on the left and the form on the right.
+- [x] Configure Google/GitHub and company SSO through the existing Better Auth library, with explicit provider readiness and safe callbacks.
+- [x] Document provider registration, runtime credentials, callback URLs, and any SSO scope decisions.
+- [x] Verify authentication configuration, failure paths, lint/typecheck/build, and desktop/mobile browser rendering.
+
+### Review
+
+Implemented a dedicated split login layout, accessible password visibility,
+Google/GitHub provider actions, and configurable company OIDC sign-in. Provider
+buttons appear only for complete runtime configuration. Existing email login
+is preserved, new provider users go to setup, automatic identity merging is
+disabled, and provider tokens are encrypted. SAML and multi-organization IdP
+registration are not part of this OIDC implementation. No database migration
+is needed.
+
+Verification passed lint, typecheck, production build, all 53 unit/API/database
+tests, and all six browser scenarios. Desktop/mobile screenshots confirmed
+the full boat composition and light theme even with dark browser preferences.
+Provider tests exercise real Better Auth authorization handlers with fixture
+credentials/discovery; browser tests cover provider errors, cancellation,
+password visibility, real email login, and the existing Devnet demo. The first
+full browser run exposed missing bootstrap controls in the disposable database;
+initializing them restored readiness. Test account creation now respects the
+real signup rate limit as the suite grows.
+
+Google/GitHub OAuth application credentials and the company OIDC discovery/client
+configuration must still be supplied in Northflank. No real external-provider
+authentication was performed without those credentials.
+
 ## Light-only theme — 2026-10-11
 
 - [x] Trace the mixed theme to automatic Nuxt UI color-mode switching.

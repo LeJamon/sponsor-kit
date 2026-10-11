@@ -95,8 +95,9 @@ never included in the public auth configuration response, and enabling these
 providers requires no database migration.
 
 An existing password account with the same email is not implicitly linked to a
-social or SSO account. The user must authenticate to the existing account and
-explicitly link another provider. Provider sign-in may create a new local user
+social or SSO account. Existing users should continue with their original
+sign-in method; this login page does not provide account linking or silently
+merge identities. Provider sign-in may create a new local user
 when no matching account exists; company domain or token claims do not assign
 organizations or roles, because normal onboarding remains responsible for
 that decision.

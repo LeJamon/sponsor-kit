@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
+import { createTestAccount } from './signup'
 
 const destination = 'rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh'
 
@@ -75,9 +76,8 @@ test('a developer signs a payment in the browser and can revisit its validated o
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   const foreign = await playwright.request.newContext({ baseURL })
   try {
-    const signup = await foreign.post('/api/auth/sign-up/email', {
-      headers: { origin: baseURL! },
-      data: { name: 'Another tenant', email: `foreign-${randomUUID()}@example.invalid`, password: `Foreign-${randomUUID()}!` }
+    const signup = await createTestAccount(foreign, baseURL!, {
+      name: 'Another tenant', email: `foreign-${randomUUID()}@example.invalid`, password: `Foreign-${randomUUID()}!`
     })
     expect(signup.ok()).toBe(true)
     const response = await foreign.get(`/api/console/projects/${projectId}/intents/${intentId}`)
@@ -100,9 +100,8 @@ test('protected routes redirect guests and password recovery explains missing em
 })
 
 test('an existing login can recover incomplete onboarding without duplicate projects', async ({ page, baseURL }) => {
-  const signup = await page.request.post('/api/auth/sign-up/email', {
-    headers: { origin: baseURL! },
-    data: { name: 'Recovery tester', email: `recovery-${randomUUID()}@example.invalid`, password: `Recovery-${randomUUID()}!` }
+  const signup = await createTestAccount(page.request, baseURL!, {
+    name: 'Recovery tester', email: `recovery-${randomUUID()}@example.invalid`, password: `Recovery-${randomUUID()}!`
   })
   expect(signup.ok()).toBe(true)
   await page.goto('/app/setup')

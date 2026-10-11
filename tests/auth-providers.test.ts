@@ -1,6 +1,6 @@
 import { memoryAdapter } from '@better-auth/memory-adapter'
 import { betterAuth } from 'better-auth'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   COMPANY_SSO_PROVIDER_ID,
   DEFAULT_COMPANY_SSO_LABEL,
@@ -26,6 +26,10 @@ const sso = {
   ACME_SSO_CLIENT_SECRET: 'sso-client-secret',
   ACME_SSO_LABEL: 'Acme Workforce'
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('authentication provider configuration', () => {
   beforeEach(() => {
@@ -95,7 +99,7 @@ describe('authentication provider configuration', () => {
     })
   })
 
-  it('configures verified, PKCE OIDC and encrypted account storage', () => {
+  it('requires verified OIDC identity tokens and PKCE', () => {
     const options = createAuthProviderOptions(sso)
     expect(options.plugins).toHaveLength(1)
     expect(options.plugins[0].options).toEqual({
@@ -112,6 +116,37 @@ describe('authentication provider configuration', () => {
       }]
     })
     expect(JSON.stringify(options.publicConfig)).not.toContain(sso.ACME_SSO_CLIENT_SECRET)
+  })
+})
+
+describe('configured social authorization flows', () => {
+  it.each([
+    ['google', 'accounts.google.com'],
+    ['github', 'github.com']
+  ])('starts %s sign-in and rejects external return URLs', async (provider, hostname) => {
+    const options = createAuthProviderOptions({ ...google, ...github })
+    const auth = betterAuth({
+      database: memoryAdapter({}),
+      secret: 'social-flow-test-secret-long-enough-123456789',
+      baseURL: 'https://app.example.com',
+      socialProviders: options.socialProviders,
+      advanced: { disableOriginCheck: false, disableCSRFCheck: false },
+      logger: { disabled: true }
+    })
+    const request = (callbackURL: string) => auth.handler(new Request('https://app.example.com/api/auth/sign-in/social', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'origin': 'https://app.example.com' },
+      body: JSON.stringify({ provider, callbackURL, disableRedirect: true })
+    }))
+    const response = await request('/app')
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    const url = new URL(body.url)
+    expect(url.hostname).toBe(hostname)
+    expect(url.searchParams.get('redirect_uri')).toBe(`https://app.example.com/api/auth/callback/${provider}`)
+    expect(url.searchParams.get('state')).toBeTruthy()
+    expect(body.url).not.toContain('client-secret')
+    expect((await request('https://attacker.example/')).status).toBe(403)
   })
 })
 

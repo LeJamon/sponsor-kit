@@ -135,9 +135,7 @@ async function submit() {
       />
     </form>
 
-    <div class="min-h-48">
-      <AuthProviderButtons :callback-url="redirectTarget()" />
-    </div>
+    <AuthProviderButtons :callback-url="redirectTarget()" />
 
     <p class="mt-6 text-center text-sm text-[#62789C]">
       New to ACME?
