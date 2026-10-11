@@ -18,7 +18,7 @@ test('provider buttons preserve safe destinations and recover from provider fail
   // Navigate on the client so the browser fixture supplies provider configuration.
   await page.goto('/docs')
   await page.getByRole('link', { name: 'Sign in', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Welcome back', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Log in to ACME', exact: true })).toBeVisible()
   await expect(page.locator('html')).toHaveClass('light')
   await expect(page.getByRole('button', { name: 'Continue with Google', exact: true })).toBeVisible()
   await page.screenshot({ path: 'test-results/login-desktop.png', fullPage: true })

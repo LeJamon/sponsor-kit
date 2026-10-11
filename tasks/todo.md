@@ -1,5 +1,14 @@
 # ACME Sponsor Kit
 
+## Login copy simplification — 2026-10-11
+
+- [x] Use “Log in to ACME” and remove the requested form and artwork descriptions.
+- [x] Verify lint, build, and rendered copy and layout.
+
+### Review
+
+Lint and production build passed. Browser checks confirmed the requested heading and removed copy, artwork on the right, and no mobile overflow. Desktop screenshot reviewed.
+
 ## Login visual continuity — 2026-10-11
 
 - [x] Move the login form left and boat right, preserving their proportions and mobile layout.

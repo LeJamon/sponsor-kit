@@ -41,10 +41,7 @@
         </picture>
         <div class="absolute inset-0 bg-gradient-to-t from-[#08152E]/80 via-[#08152E]/10 to-white/10" />
         <div class="absolute inset-0 bg-gradient-to-r from-white/20 via-transparent to-[#0A3DFF]/10" />
-        <div class="relative flex min-h-full flex-col justify-between p-8 xl:p-12">
-          <p class="w-fit rounded-full border border-white/70 bg-white/75 px-3.5 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-[#10244A] shadow-sm backdrop-blur-sm">
-            XRPL sponsorship infrastructure
-          </p>
+        <div class="relative flex min-h-full flex-col justify-end p-8 xl:p-12">
           <div class="max-w-md text-white">
             <p class="text-xs font-semibold uppercase tracking-[0.2em] text-white/75">
               ACME developer console
@@ -55,9 +52,6 @@
             >
               Keep your next project moving.
             </h2>
-            <p class="mt-4 max-w-sm text-sm leading-6 text-white/80 sm:text-base">
-              Policy-controlled fee and reserve sponsorship for XRPL applications.
-            </p>
           </div>
         </div>
       </aside>

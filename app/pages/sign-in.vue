@@ -43,17 +43,9 @@ async function submit() {
       <AppLogo />
     </NuxtLink>
 
-    <div class="mt-10 sm:mt-12">
-      <p class="acme-kicker">
-        Developer console
-      </p>
-      <h1 class="mt-3 text-3xl font-semibold tracking-tight text-[#10244A] sm:text-4xl">
-        Welcome back
-      </h1>
-      <p class="mt-3 text-sm leading-6 text-[#62789C] sm:text-base">
-        Sign in to manage sponsorship projects.
-      </p>
-    </div>
+    <h1 class="mt-10 text-3xl font-semibold tracking-tight text-[#10244A] sm:mt-12 sm:text-4xl">
+      Log in to ACME
+    </h1>
 
     <UAlert
       v-if="error"
