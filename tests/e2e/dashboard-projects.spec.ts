@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { createTestAccount } from './signup'
 
-test('project creation, selection, and collapsed navigation persist without mixing project data', async ({ page, baseURL }) => {
+test('project selection and hover navigation work without mixing project data', async ({ page, baseURL }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   const signup = await createTestAccount(page.request, baseURL!, {
@@ -18,10 +18,35 @@ test('project creation, selection, and collapsed navigation persist without mixi
   await page.goto('/app')
   await expect(page.getByRole('heading', { name: 'My first project overview', exact: true })).toBeVisible()
   await expect(page.getByText(/pilot|systems operational|system status unavailable/i)).toHaveCount(0)
-  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click()
-  await expect(page.getByRole('navigation', { name: 'Console navigation', exact: true })).toHaveCount(0)
+  const sidebar = page.locator('#desktop-navigation')
+  const firstLabel = sidebar.locator('.dashboard-nav-label').first()
+  await page.getByRole('heading', { name: 'My first project overview', exact: true }).hover()
+  await expect(sidebar).toHaveCSS('width', '80px')
+  await expect(page.locator('.dashboard-content')).toHaveCSS('padding-left', '80px')
+  await expect(firstLabel).toHaveCSS('opacity', '0')
+  await expect(sidebar.getByText('ACME', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /Collapse sidebar|Expand sidebar/ })).toHaveCount(0)
+  await page.screenshot({ path: 'test-results/dashboard-sidebar-icons.png', fullPage: true, animations: 'disabled' })
+  await sidebar.hover()
+  await expect(sidebar).toHaveCSS('width', '264px')
+  await expect(page.locator('.dashboard-content')).toHaveCSS('padding-left', '264px')
+  await expect(firstLabel).toHaveCSS('opacity', '1')
+  await page.screenshot({ path: 'test-results/dashboard-sidebar-expanded.png', fullPage: true, animations: 'disabled' })
+  await sidebar.getByRole('link', { name: 'Overview', exact: true }).click()
+  await page.getByRole('button', { name: 'Choose project', exact: true }).hover()
+  await expect(sidebar).toHaveCSS('width', '80px')
+  await expect(page.locator('.dashboard-content')).toHaveCSS('padding-left', '80px')
+  await page.getByRole('link', { name: 'ACME overview', exact: true }).focus()
+  await page.keyboard.press('Tab')
+  await expect(sidebar.getByRole('link', { name: 'Overview', exact: true })).toBeFocused()
+  await expect(sidebar).toHaveCSS('width', '264px')
+  await expect(page.locator('.dashboard-content')).toHaveCSS('padding-left', '264px')
+  await page.getByRole('button', { name: 'Choose project', exact: true }).focus()
+  await expect(sidebar).toHaveCSS('width', '80px')
+  await expect(page.locator('.dashboard-content')).toHaveCSS('padding-left', '80px')
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Expand sidebar', exact: true })).toBeVisible()
+  await expect(sidebar).toHaveCSS('width', '80px')
+  await expect(page.locator('.dashboard-content')).toHaveCSS('padding-left', '80px')
   await page.getByRole('button', { name: 'Choose project', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Create project', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Create project', exact: true })).toBeVisible()
@@ -48,7 +73,6 @@ test('project creation, selection, and collapsed navigation persist without mixi
     headers: { origin: baseURL! }, data: { name: 'Demo-only key', scopes: ['intents:read'] }
   })
   expect(key.ok()).toBe(true)
-  await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click()
   for (const [label, endpoint] of [
     ['Policies', 'policies'],
     ['Funding', 'funding'],

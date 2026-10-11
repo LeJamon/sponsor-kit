@@ -1,5 +1,7 @@
 # Lessons
 
+- Match the referenced navigation interaction: icons at rest, labels on hover or keyboard focus, and a logo-only sidebar header. Do not substitute a persistent click-to-collapse control.
+
 - Use product language in the console rather than pilot branding. Project navigation must reflect the selected project throughout the app, and persistent status decorations should earn their space.
 
 - Keep the login form introduction to the requested direct heading; avoid repeated console labels and sponsorship descriptions around an already branded form.

@@ -1,5 +1,17 @@
 # ACME Sponsor Kit
 
+## Hover navigation — 2026-10-11
+
+- [x] Inspect the updated faucet sidebar and match its interaction model.
+- [x] Replace click-to-collapse with an icon rail that expands on hover/focus; use the boat logo alone.
+- [x] Verify hover, pointer exit, keyboard focus, mobile navigation, and build checks.
+
+### Review
+
+Matched the updated faucet interaction: an 80px desktop icon rail expands on hover or keyboard focus, with matching content offset and 260ms transitions. Removed both toggle buttons and the persisted collapsed state; the sidebar header uses the boat alone. Touch desktops retain labels, mobile retains its drawer, and reduced-motion preferences disable transitions.
+
+Lint, typecheck, production build, and the updated dashboard browser regression passed. Verified collapse after clicking a link and moving away, keyboard focus expansion, content offsets, project creation/switching, and mobile navigation. Reviewed settled collapsed/expanded screenshots; screenshots disable animation to avoid capture-time transition artifacts.
+
 ## Dashboard navigation and projects — 2026-10-11
 
 - [x] Add authenticated project creation with membership checks and complete sponsor/policy provisioning.

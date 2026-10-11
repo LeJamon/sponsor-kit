@@ -4,7 +4,6 @@ import { authClient } from '~~/lib/auth-client'
 const route = useRoute()
 const open = ref(false)
 const signingOut = ref(false)
-const collapsed = useCookie('acme-sidebar-collapsed', { default: () => false, sameSite: 'lax', maxAge: 60 * 60 * 24 * 365 })
 const { data: context } = await useConsoleProject()
 const { selectProject } = useProjectSelection()
 
@@ -34,24 +33,18 @@ async function signOut() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-[#F7FAFF]">
+  <div class="dashboard-shell min-h-screen bg-[#F7FAFF]">
     <aside
-      v-if="!collapsed"
       id="desktop-navigation"
-      class="fixed inset-y-0 left-0 z-40 hidden w-66 overflow-y-auto border-r border-[#D9E5F7] bg-white p-5 lg:block"
+      class="dashboard-sidebar fixed inset-y-0 left-0 z-40 hidden overflow-x-hidden overflow-y-auto border-r border-[#D9E5F7] bg-white px-3 py-5 lg:block"
     >
-      <div class="flex items-center justify-between gap-2">
-        <NuxtLink to="/app"><AppLogo /></NuxtLink>
-        <UButton
-          icon="i-lucide-panel-left-close"
-          aria-label="Collapse sidebar"
-          aria-controls="desktop-navigation"
-          :aria-expanded="true"
-          color="neutral"
-          variant="ghost"
-          @click="collapsed = true"
-        />
-      </div>
+      <NuxtLink
+        to="/app"
+        aria-label="ACME overview"
+        class="ml-2.5 inline-flex rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#0A3DFF]"
+      >
+        <AppLogo compact />
+      </NuxtLink>
       <nav
         aria-label="Console navigation"
         class="mt-7 space-y-1"
@@ -60,18 +53,21 @@ async function signOut() {
           v-for="item in navigation"
           :key="item.to"
           :to="item.to"
-          class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition"
+          :aria-label="item.label"
+          :aria-current="isActive(item.to) ? 'page' : undefined"
+          class="dashboard-nav-link flex h-12 items-center rounded-xl px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#0A3DFF]"
           :class="isActive(item.to) ? 'bg-[#DCEBFF] text-[#0A3DFF]' : 'text-[#62789C] hover:bg-[#F7FAFF] hover:text-[#10244A]'"
         >
           <UIcon
             :name="item.icon"
-            class="size-4.5"
-          />{{ item.label }}
+            class="size-5 shrink-0"
+          />
+          <span class="dashboard-nav-label">{{ item.label }}</span>
         </NuxtLink>
       </nav>
     </aside>
 
-    <div :class="{ 'lg:pl-66': !collapsed }">
+    <div class="dashboard-content">
       <header class="sticky top-0 z-30 flex h-18 items-center justify-between border-b border-[#D9E5F7] bg-white/90 px-5 backdrop-blur lg:px-8">
         <div class="flex min-w-0 items-center gap-2 sm:gap-3">
           <UButton
@@ -81,17 +77,6 @@ async function signOut() {
             variant="ghost"
             class="lg:hidden"
             @click="open = true"
-          />
-          <UButton
-            v-if="collapsed"
-            icon="i-lucide-panel-left-open"
-            aria-label="Expand sidebar"
-            aria-controls="desktop-navigation"
-            :aria-expanded="false"
-            color="neutral"
-            variant="ghost"
-            class="hidden lg:inline-flex"
-            @click="collapsed = false"
           />
           <ProjectSwitcher />
         </div>
@@ -143,3 +128,75 @@ async function signOut() {
     </USlideover>
   </div>
 </template>
+
+<style scoped>
+@media (min-width: 1024px) {
+  .dashboard-shell {
+    --sidebar-width: 5rem;
+  }
+
+  .dashboard-shell:has(.dashboard-sidebar:hover),
+  .dashboard-shell:has(.dashboard-sidebar :focus-visible) {
+    --sidebar-width: 16.5rem;
+  }
+
+  .dashboard-sidebar {
+    width: var(--sidebar-width);
+    transition: width 260ms ease;
+  }
+
+  .dashboard-content {
+    padding-left: var(--sidebar-width);
+    transition: padding-left 260ms ease;
+  }
+
+  .dashboard-nav-link {
+    gap: 0;
+    transition: gap 260ms ease, color 150ms ease, background-color 150ms ease;
+  }
+
+  .dashboard-nav-label {
+    max-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translateX(-0.375rem);
+    transition: max-width 260ms ease, opacity 180ms ease, transform 260ms ease;
+  }
+
+  .dashboard-sidebar:is(:hover, :has(:focus-visible)) .dashboard-nav-link {
+    gap: 0.75rem;
+  }
+
+  .dashboard-sidebar:is(:hover, :has(:focus-visible)) .dashboard-nav-label {
+    max-width: 12rem;
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (min-width: 1024px) and (hover: none) {
+  .dashboard-shell {
+    --sidebar-width: 16.5rem;
+  }
+
+  .dashboard-nav-link {
+    gap: 0.75rem;
+  }
+
+  .dashboard-nav-label {
+    max-width: 12rem;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-sidebar,
+  .dashboard-content,
+  .dashboard-nav-link,
+  .dashboard-nav-label {
+    transition: none;
+  }
+}
+</style>
