@@ -9,7 +9,8 @@ import { requireSameOrigin } from '~~/server/utils/same-origin'
 const schema = z.object({
   organizationId: z.string().uuid(),
   name: z.string().trim().min(2).max(80),
-  requestId: z.string().uuid()
+  requestId: z.string().uuid(),
+  network: z.literal('devnet').default('devnet')
 })
 
 export default defineEventHandler(async (event) => {
@@ -35,6 +36,9 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 403, statusMessage: 'Organization administrator access required' })
     }
     const [existingProject] = await tx.select().from(projects).where(eq(projects.publicId, publicId)).limit(1)
+    if (existingProject?.status === 'archived') {
+      throw createError({ statusCode: 409, statusMessage: 'Request ID belongs to an archived project', data: { code: 'ARCHIVED_PROJECT_REQUEST' } })
+    }
     if (existingProject && (existingProject.organizationId !== parsed.data.organizationId || existingProject.name !== parsed.data.name)) {
       throw createError({ statusCode: 409, statusMessage: 'Request ID was already used for a different project' })
     }
@@ -61,6 +65,9 @@ export default defineEventHandler(async (event) => {
     }
     const [existingProject] = await tx.select().from(projects).where(eq(projects.publicId, publicId)).limit(1)
     if (existingProject) {
+      if (existingProject.status === 'archived') {
+        throw createError({ statusCode: 409, statusMessage: 'Request ID belongs to an archived project', data: { code: 'ARCHIVED_PROJECT_REQUEST' } })
+      }
       if (existingProject.organizationId !== parsed.data.organizationId || existingProject.name !== parsed.data.name) {
         throw createError({ statusCode: 409, statusMessage: 'Request ID was already used for a different project' })
       }
@@ -72,7 +79,7 @@ export default defineEventHandler(async (event) => {
       name: parsed.data.name,
       publicId,
       environment: 'development',
-      network: 'devnet',
+      network: parsed.data.network,
       rpcUrl: context.rpcUrl
     }).returning()
     if (!project) throw new Error('Project creation failed')

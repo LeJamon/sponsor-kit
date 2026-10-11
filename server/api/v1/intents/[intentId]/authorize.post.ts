@@ -107,6 +107,10 @@ export default defineEventHandler(async (event) => {
   if (accountInfo.account_data.Sequence !== Number(signedTransaction.Sequence)) throw createError({ statusCode: 409, statusMessage: 'Account sequence changed; create a new intent' })
   const now = new Date()
   const signed = await database.transaction(async (tx) => {
+    // Project lifecycle is the outer lock for every authorization mutation.
+    // Deletion and intent creation use the same order so neither can leave a
+    // transaction waiting on a project row held behind an intent lock.
+    const [lockedProject] = await tx.select().from(projects).where(eq(projects.id, context.intent.projectId)).for('update').limit(1)
     const [lockedIntent] = await tx.select().from(sponsorshipIntents).where(eq(sponsorshipIntents.id, intentId)).for('update').limit(1)
     if (!lockedIntent) throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
     if (lockedIntent.state !== 'awaiting_user_signature') {
@@ -115,7 +119,6 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
     }
     if (lockedIntent.expiresAt <= now) throw createError({ statusCode: 409, statusMessage: 'Intent is no longer authorizable' })
-    const [lockedProject] = await tx.select().from(projects).where(eq(projects.id, lockedIntent.projectId)).for('update').limit(1)
     const [lockedOrganization] = lockedProject ? await tx.select().from(organizations).where(eq(organizations.id, lockedProject.organizationId)).for('update').limit(1) : []
     const [lockedSponsor] = await tx.select().from(sponsorAccounts).where(eq(sponsorAccounts.id, lockedIntent.sponsorAccountId!)).for('update').limit(1)
     const [lockedTreasury] = await tx.select().from(sponsorTreasuries).where(eq(sponsorTreasuries.id, lockedSponsor?.treasuryId || '')).for('update').limit(1)

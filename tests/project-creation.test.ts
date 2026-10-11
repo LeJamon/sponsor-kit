@@ -158,6 +158,7 @@ describe.skipIf(!database)('console project creation', () => {
     const response = await createProject(event({ organizationId: ids.organization, name: 'Payments API', requestId })) as { project: typeof projects.$inferSelect, organization: typeof organizations.$inferSelect }
     expect(response.project.name).toBe('Payments API')
     expect(response.project.organizationId).toBe(ids.organization)
+    expect(response.project.network).toBe('devnet')
     expect(response.organization.id).toBe(ids.organization)
     expect(response.project.publicId).toMatch(/^proj_[0-9a-f]{64}$/)
 
@@ -216,6 +217,7 @@ describe.skipIf(!database)('console project creation', () => {
     for (const name of ['x', 'x'.repeat(81)]) {
       await expectStatus(createProject(event({ organizationId: ids.organization, name, requestId: randomUUID() })), 400)
     }
+    await expectStatus(createProject(event({ organizationId: ids.organization, name: 'Mainnet project', network: 'mainnet', requestId: randomUUID() })), 400)
     expect(routeMocks.loadSponsorProtocolDefinitions).not.toHaveBeenCalled()
   })
 

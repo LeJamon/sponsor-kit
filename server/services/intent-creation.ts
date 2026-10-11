@@ -1,7 +1,6 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { and, count, desc, eq, gte } from 'drizzle-orm'
-import type { projects } from '../database/schema'
-import { intentEvents, projectSponsorAccounts, sponsorAccounts, sponsorTreasuries, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies } from '../database/schema'
+import { intentEvents, projectSponsorAccounts, projects, sponsorAccounts, sponsorTreasuries, sponsorshipGrants, sponsorshipIntents, sponsorshipPolicies } from '../database/schema'
 import { canonicalHash } from '../domain/canonical-json'
 import { evaluatePolicy, policyDocumentSchema } from '../domain/policy'
 import { useDatabase } from '../utils/database'
@@ -78,7 +77,15 @@ export async function createSponsorshipIntent(input: {
 }) {
   const requestHash = canonicalHash(input.request)
   const database = useDatabase()
-  const [existing] = await database.select().from(sponsorshipIntents).where(and(eq(sponsorshipIntents.projectId, input.project.id), eq(sponsorshipIntents.idempotencyKey, input.idempotencyKey))).limit(1)
+  // Lock the project while resolving idempotent retries. This prevents a
+  // deletion that has already archived the project from replaying an old
+  // creation response.
+  const existing = await database.transaction(async (tx) => {
+    const [project] = await tx.select({ id: projects.id, status: projects.status }).from(projects).where(eq(projects.id, input.project.id)).for('update').limit(1)
+    if (!project || project.status !== 'active') throw createError({ statusCode: 409, statusMessage: 'Project is no longer active', data: { code: 'PROJECT_ARCHIVED' } })
+    const [row] = await tx.select().from(sponsorshipIntents).where(and(eq(sponsorshipIntents.projectId, input.project.id), eq(sponsorshipIntents.idempotencyKey, input.idempotencyKey))).limit(1)
+    return row
+  })
   if (existing) {
     if (existing.requestHash !== requestHash) throw createError({ statusCode: 409, statusMessage: 'Idempotency key was already used for a different request' })
     return intentCreationResponse(existing, grantToken(existing.id, input.idempotencyKey, requestHash))
@@ -130,6 +137,8 @@ export async function createSponsorshipIntent(input: {
   const transactionHash = canonicalHash(transaction)
   const token = grantToken(intentId, input.idempotencyKey, requestHash)
   const intent = await database.transaction(async (tx) => {
+    const [project] = await tx.select({ id: projects.id, status: projects.status }).from(projects).where(eq(projects.id, input.project.id)).for('update').limit(1)
+    if (!project || project.status !== 'active') throw createError({ statusCode: 409, statusMessage: 'Project is no longer active', data: { code: 'PROJECT_ARCHIVED' } })
     const [created] = await tx.insert(sponsorshipIntents).values({
       id: intentId, projectId: input.project.id, sponsorAccountId: sponsorBinding.binding.id, policyId: policyRow.id,
       accountAddress: input.request.account, network: input.project.network, networkId: protocol.networkId,

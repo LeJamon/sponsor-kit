@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { H3Event } from 'h3'
-import { and, eq, gt, isNull, or } from 'drizzle-orm'
+import { and, eq, gt, isNull, ne, or } from 'drizzle-orm'
 import { apiKeys, organizations, projects, sponsorshipIntents } from '../database/schema'
 import { useDatabase } from './database'
 
@@ -23,7 +23,9 @@ export function readBearerToken(event: H3Event): string {
 export async function requireProjectApiKey(event: H3Event, projectPublicId: string, requiredScope: string, options: { requireActiveProject?: boolean } = {}) {
   const token = readBearerToken(event)
   const secretHash = hashApiKey(token)
-  const projectStatus = options.requireActiveProject === false ? undefined : eq(projects.status, 'active')
+  // Read-only capability discovery may continue for a paused project, but an
+  // archived project is outside the API key's workspace in every case.
+  const projectStatus = options.requireActiveProject === false ? ne(projects.status, 'archived') : eq(projects.status, 'active')
   const rows = await useDatabase().select({
     apiKeyId: apiKeys.id,
     scopes: apiKeys.scopes,
@@ -56,6 +58,7 @@ export async function requireIntentApiKey(event: H3Event, intentId: string, requ
     .where(and(
       eq(sponsorshipIntents.id, intentId),
       eq(apiKeys.secretHash, secretHash),
+      ne(projects.status, 'archived'),
       eq(organizations.status, 'active'),
       isNull(apiKeys.revokedAt),
       or(isNull(apiKeys.expiresAt), gt(apiKeys.expiresAt, new Date()))
