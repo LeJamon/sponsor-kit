@@ -1,5 +1,7 @@
 # Lessons
 
+- Keep shared hero artwork on the same side across landing and authentication pages to preserve visual continuity when users navigate.
+
 - For a light-only design, disable automatic framework color-mode switching and set native controls to light. Verify with both a dark OS preference and a saved dark theme so framework tokens cannot conflict with custom light surfaces.
 
 - Treat draft amendment documents as design input, not proof of network availability. Discover live capabilities and fail closed before signing.

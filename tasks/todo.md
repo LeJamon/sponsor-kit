@@ -1,5 +1,17 @@
 # ACME Sponsor Kit
 
+## Login visual continuity — 2026-10-11
+
+- [x] Move the login form left and boat right, preserving their proportions and mobile layout.
+- [x] Verify production build and desktop/mobile browser composition.
+
+### Review
+
+Moved the form before the artwork in DOM order and mirrored the grid column
+proportions. Lint, production build, and Chromium desktop/mobile checks passed.
+Screenshot review confirmed the full boat on the right, consistent with the
+landing page; mobile keeps the form visible without horizontal overflow.
+
 ## Split login and external authentication — 2026-10-11
 
 - [x] Build a responsive light-only login with the existing boat on the left and the form on the right.
